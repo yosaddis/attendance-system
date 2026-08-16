@@ -4,7 +4,9 @@ using System.Net.Http.Json;
 using AttendanceApi.Data;
 using AttendanceApi.Dtos;
 using AttendanceApi.Entities;
+using AttendanceApi.Services;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -89,5 +91,113 @@ public class EmployeesControllerTests : IClassFixture<ApiFactory>
         var listResponse = await otherClient.GetAsync("/api/employees");
         var list = await listResponse.Content.ReadFromJsonAsync<List<EmployeeResponse>>();
         Assert.Empty(list!);
+    }
+
+    [Fact]
+    public async Task CreateEmployee_WithNonexistentShiftId_ReturnsBadRequest()
+    {
+        var tenantId = CreateTenant();
+        var client = await TenantAdminClientAsync(tenantId);
+
+        var response = await client.PostAsJsonAsync("/api/employees",
+            new CreateEmployeeRequest("E001", "Jane Doe", Guid.NewGuid()));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateEmployee_WithShiftIdFromAnotherTenant_ReturnsBadRequest()
+    {
+        var tenantId = CreateTenant();
+        var otherTenantId = CreateTenant();
+        var client = await TenantAdminClientAsync(tenantId);
+
+        Guid otherTenantShiftId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var shift = new Shift { TenantId = otherTenantId, Name = "Night Shift", StartTime = new TimeOnly(22, 0), EndTime = new TimeOnly(6, 0) };
+            db.Shifts.Add(shift);
+            db.SaveChanges();
+            otherTenantShiftId = shift.Id;
+        }
+
+        var response = await client.PostAsJsonAsync("/api/employees",
+            new CreateEmployeeRequest("E001", "Jane Doe", otherTenantShiftId));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateEmployee_WithNonexistentShiftId_ReturnsBadRequest()
+    {
+        var tenantId = CreateTenant();
+        var client = await TenantAdminClientAsync(tenantId);
+
+        var created = await client.PostAsJsonAsync("/api/employees", new CreateEmployeeRequest("E001", "Jane Doe", null));
+        var employee = await created.Content.ReadFromJsonAsync<EmployeeResponse>();
+
+        var response = await client.PutAsJsonAsync($"/api/employees/{employee!.Id}",
+            new CreateEmployeeRequest("E001", "Jane Doe", Guid.NewGuid()));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateEmployee_WithShiftIdFromAnotherTenant_ReturnsBadRequest()
+    {
+        var tenantId = CreateTenant();
+        var otherTenantId = CreateTenant();
+        var client = await TenantAdminClientAsync(tenantId);
+
+        var created = await client.PostAsJsonAsync("/api/employees", new CreateEmployeeRequest("E001", "Jane Doe", null));
+        var employee = await created.Content.ReadFromJsonAsync<EmployeeResponse>();
+
+        Guid otherTenantShiftId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var shift = new Shift { TenantId = otherTenantId, Name = "Night Shift", StartTime = new TimeOnly(22, 0), EndTime = new TimeOnly(6, 0) };
+            db.Shifts.Add(shift);
+            db.SaveChanges();
+            otherTenantShiftId = shift.Id;
+        }
+
+        var response = await client.PutAsJsonAsync($"/api/employees/{employee!.Id}",
+            new CreateEmployeeRequest("E001", "Jane Doe", otherTenantShiftId));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteEmployee_AlsoRemovesTheirFingerprintTemplate()
+    {
+        var tenantId = CreateTenant();
+        var client = await TenantAdminClientAsync(tenantId);
+
+        var created = await client.PostAsJsonAsync("/api/employees", new CreateEmployeeRequest("E001", "Jane Doe", null));
+        var employee = await created.Content.ReadFromJsonAsync<EmployeeResponse>();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var cipher = scope.ServiceProvider.GetRequiredService<ITemplateCipher>();
+            db.FingerprintTemplates.Add(new FingerprintTemplate
+            {
+                EmployeeId = employee!.Id,
+                Vendor = DeviceVendor.Zk4500,
+                TemplateDataEncrypted = cipher.Encrypt(new byte[] { 1, 2, 3 }),
+            });
+            db.SaveChanges();
+        }
+
+        var deleteResponse = await client.DeleteAsync($"/api/employees/{employee!.Id}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            Assert.False(await db.FingerprintTemplates.AnyAsync(t => t.EmployeeId == employee.Id));
+        }
     }
 }

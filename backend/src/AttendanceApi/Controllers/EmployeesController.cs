@@ -40,6 +40,12 @@ public class EmployeesController : ControllerBase
         var exists = await _db.Employees.AnyAsync(e => e.TenantId == tenantId && e.EmployeeCode == request.EmployeeCode);
         if (exists) return BadRequest($"Employee code '{request.EmployeeCode}' is already in use.");
 
+        if (request.ShiftId is not null)
+        {
+            var shiftExists = await _db.Shifts.AnyAsync(s => s.Id == request.ShiftId && s.TenantId == tenantId);
+            if (!shiftExists) return BadRequest("Shift not found for this tenant.");
+        }
+
         var employee = new Employee
         {
             TenantId = tenantId,
@@ -59,6 +65,12 @@ public class EmployeesController : ControllerBase
         var employee = await _db.Employees.SingleOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId);
         if (employee is null) return NotFound();
 
+        if (request.ShiftId is not null)
+        {
+            var shiftExists = await _db.Shifts.AnyAsync(s => s.Id == request.ShiftId && s.TenantId == tenantId);
+            if (!shiftExists) return BadRequest("Shift not found for this tenant.");
+        }
+
         employee.Name = request.Name;
         employee.ShiftId = request.ShiftId;
         await _db.SaveChangesAsync();
@@ -71,6 +83,9 @@ public class EmployeesController : ControllerBase
         var tenantId = User.TenantId()!.Value;
         var employee = await _db.Employees.SingleOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId);
         if (employee is null) return NotFound();
+
+        var template = await _db.FingerprintTemplates.SingleOrDefaultAsync(t => t.EmployeeId == id);
+        if (template is not null) _db.FingerprintTemplates.Remove(template);
 
         _db.Employees.Remove(employee);
         await _db.SaveChangesAsync();

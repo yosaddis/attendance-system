@@ -30,8 +30,17 @@ public class TemplatesController : ControllerBase
         var employee = await _db.Employees.SingleOrDefaultAsync(e => e.Id == request.EmployeeId && e.TenantId == tenantId);
         if (employee is null) return NotFound();
 
+        byte[] plaintext;
+        try
+        {
+            plaintext = Convert.FromBase64String(request.TemplateData);
+        }
+        catch (FormatException)
+        {
+            return BadRequest("Invalid template data — must be valid base64.");
+        }
+
         var station = await _db.Stations.SingleAsync(s => s.Id == User.StationId()!.Value);
-        var plaintext = Convert.FromBase64String(request.TemplateData);
         var encrypted = _cipher.Encrypt(plaintext);
 
         var existing = await _db.FingerprintTemplates.SingleOrDefaultAsync(t => t.EmployeeId == request.EmployeeId);

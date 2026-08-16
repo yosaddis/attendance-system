@@ -88,6 +88,19 @@ public class TemplatesControllerTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Enroll_WithMalformedBase64_ReturnsBadRequest()
+    {
+        var (_, employeeId, stationKey) = SeedTenantEmployeeAndStation();
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Station-Key", stationKey);
+
+        var enroll = await client.PostAsJsonAsync("/api/templates",
+            new EnrollTemplateRequest(employeeId, "not-valid-base64!!!"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, enroll.StatusCode);
+    }
+
+    [Fact]
     public async Task Enroll_ForOtherTenantsEmployee_ReturnsNotFound()
     {
         var (_, employeeIdA, _) = SeedTenantEmployeeAndStation("A");

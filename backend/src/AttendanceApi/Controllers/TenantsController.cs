@@ -55,6 +55,13 @@ public class TenantsController : ControllerBase
         if (!Enum.TryParse<DeviceVendor>(request.DeviceVendor, out var vendor) || !Enum.IsDefined(vendor))
             return BadRequest($"Invalid device vendor '{request.DeviceVendor}'.");
 
+        if (tenant.DeviceVendor != vendor)
+        {
+            var hasStations = await _db.Stations.AnyAsync(s => s.TenantId == id);
+            if (hasStations)
+                return BadRequest("Cannot change device vendor for a tenant with existing stations.");
+        }
+
         tenant.Name = request.Name;
         tenant.DeviceVendor = vendor;
         await _db.SaveChangesAsync();

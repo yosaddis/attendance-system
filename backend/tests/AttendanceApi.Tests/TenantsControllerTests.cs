@@ -119,6 +119,85 @@ public class TenantsControllerTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Update_ChangingDeviceVendor_WithNoExistingStations_Succeeds()
+    {
+        var client = await OperatorClientAsync();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "Zk4500"));
+        var created = await createResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/tenants/{created!.Id}",
+            new UpdateTenantRequest("Acme Foods", "Secugen"));
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<TenantResponse>();
+        Assert.Equal("Secugen", updated!.DeviceVendor);
+    }
+
+    [Fact]
+    public async Task Update_ChangingDeviceVendor_WithExistingStations_ReturnsBadRequest()
+    {
+        var client = await OperatorClientAsync();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "Zk4500"));
+        var created = await createResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Stations.Add(new Station
+            {
+                TenantId = created!.Id,
+                Name = "Front Desk",
+                DeviceVendor = DeviceVendor.Zk4500,
+                ApiKeyHash = $"hash-{Guid.NewGuid()}",
+            });
+            db.SaveChanges();
+        }
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/tenants/{created!.Id}",
+            new UpdateTenantRequest("Acme Foods", "Secugen"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+
+        var getResponse = await client.GetAsync($"/api/tenants/{created.Id}");
+        var fetched = await getResponse.Content.ReadFromJsonAsync<TenantResponse>();
+        Assert.Equal("Zk4500", fetched!.DeviceVendor);
+    }
+
+    [Fact]
+    public async Task Update_KeepingSameDeviceVendor_WithExistingStations_Succeeds()
+    {
+        var client = await OperatorClientAsync();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "Zk4500"));
+        var created = await createResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Stations.Add(new Station
+            {
+                TenantId = created!.Id,
+                Name = "Front Desk",
+                DeviceVendor = DeviceVendor.Zk4500,
+                ApiKeyHash = $"hash-{Guid.NewGuid()}",
+            });
+            db.SaveChanges();
+        }
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/tenants/{created!.Id}",
+            new UpdateTenantRequest("Acme Foods Renamed", "Zk4500"));
+
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+        var updated = await updateResponse.Content.ReadFromJsonAsync<TenantResponse>();
+        Assert.Equal("Acme Foods Renamed", updated!.Name);
+    }
+
+    [Fact]
     public async Task Create_AsTenantAdmin_ReturnsForbidden()
     {
         Guid tenantId;
