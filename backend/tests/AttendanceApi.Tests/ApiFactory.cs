@@ -22,11 +22,6 @@ public class ApiFactory : WebApplicationFactory<Program>
             services.Remove(descriptor);
 
             services.AddDbContext<AppDbContext>(options => options.UseSqlite(_connection));
-
-            var provider = services.BuildServiceProvider();
-            using var scope = provider.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            db.Database.EnsureCreated();
         });
     }
 

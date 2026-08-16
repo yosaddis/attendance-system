@@ -51,6 +51,29 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AttendanceApi.Data.AppDbContext>();
+    db.Database.Migrate();
+
+    var operatorEmail = builder.Configuration["Operator:Email"];
+    var operatorPassword = builder.Configuration["Operator:Password"];
+    if (!string.IsNullOrEmpty(operatorEmail) && !string.IsNullOrEmpty(operatorPassword)
+        && !db.Users.Any(u => u.Email == operatorEmail))
+    {
+        var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<AttendanceApi.Entities.User>();
+        var user = new AttendanceApi.Entities.User
+        {
+            Email = operatorEmail,
+            PasswordHash = "",
+            Role = AttendanceApi.Entities.UserRole.Operator,
+        };
+        user.PasswordHash = hasher.HashPassword(user, operatorPassword);
+        db.Users.Add(user);
+        db.SaveChanges();
+    }
+}
+
 app.Run();
 
 public partial class Program { }

@@ -1,0 +1,31 @@
+# backend/docker-compose.yml
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: attendance
+      POSTGRES_USER: attendance
+      POSTGRES_PASSWORD: attendance
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: src/AttendanceApi/Dockerfile
+    depends_on:
+      - db
+    environment:
+      ConnectionStrings__Default: "Host=db;Database=attendance;Username=attendance;Password=attendance"
+      Jwt__Key: "${JWT_KEY}"
+      Jwt__Issuer: "attendance-api"
+      Templates__EncryptionKey: "${TEMPLATE_ENCRYPTION_KEY}"
+      Operator__Email: "${OPERATOR_EMAIL}"
+      Operator__Password: "${OPERATOR_PASSWORD}"
+    ports:
+      - "8080:8080"
+
+volumes:
+  db-data:
