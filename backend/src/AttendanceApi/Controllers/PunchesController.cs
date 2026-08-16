@@ -28,16 +28,19 @@ public class PunchesController : ControllerBase
         // to clear its local retry queue. A partially-invalid batch is rejected in
         // full rather than silently dropping just the bad punch.
         var parsedTypes = new Dictionary<Guid, PunchType>();
+        var seenIds = new HashSet<Guid>();
         foreach (var dto in request.Punches)
         {
+            if (!seenIds.Add(dto.Id))
+                return BadRequest($"Duplicate punch id '{dto.Id}' within the same batch.");
+
             if (!Enum.TryParse<PunchType>(dto.PunchType, out var punchType) || !Enum.IsDefined(punchType))
                 return BadRequest($"Invalid punch type '{dto.PunchType}'.");
 
             parsedTypes[dto.Id] = punchType;
         }
 
-        var incomingIds = request.Punches.Select(p => p.Id).ToList();
-        var existingIds = await _db.Punches.Where(p => incomingIds.Contains(p.Id)).Select(p => p.Id).ToListAsync();
+        var existingIds = (await _db.Punches.Where(p => seenIds.Contains(p.Id)).Select(p => p.Id).ToListAsync()).ToHashSet();
 
         var accepted = new List<Guid>();
         foreach (var dto in request.Punches)

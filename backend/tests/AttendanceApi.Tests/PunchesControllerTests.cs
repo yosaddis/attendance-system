@@ -80,4 +80,26 @@ public class PunchesControllerTests : IClassFixture<ApiFactory>
         Assert.DoesNotContain(db.Punches, p => p.Id == validPunchId);
         Assert.DoesNotContain(db.Punches, p => p.Id == invalidPunchId);
     }
+
+    [Fact]
+    public async Task BatchIngest_WithDuplicateIdWithinBatch_RejectsWholeBatchAndPersistsNothing()
+    {
+        var (employeeId, stationKey) = SeedTenantEmployeeAndStation();
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Station-Key", stationKey);
+
+        var duplicatedId = Guid.NewGuid();
+        var request = new PunchBatchRequest(new List<PunchDto>
+        {
+            new(duplicatedId, employeeId, "In", DateTimeOffset.UtcNow),
+            new(duplicatedId, employeeId, "Out", DateTimeOffset.UtcNow),
+        });
+
+        var response = await client.PostAsJsonAsync("/api/punches/batch", request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.DoesNotContain(db.Punches, p => p.Id == duplicatedId);
+    }
 }
