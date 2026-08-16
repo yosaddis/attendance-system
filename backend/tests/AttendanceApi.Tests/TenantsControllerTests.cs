@@ -232,4 +232,55 @@ public class TenantsControllerTests : IClassFixture<ApiFactory>
             Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         }
     }
+
+    [Fact]
+    public async Task CreateAdmin_ThenLogin_Succeeds()
+    {
+        var client = await OperatorClientAsync();
+
+        var tenantResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "Zk4500"));
+        var tenant = await tenantResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+        var createAdmin = await client.PostAsJsonAsync($"/api/tenants/{tenant!.Id}/admins",
+            new CreateTenantAdminRequest("admin@acme.test", "correct-horse"));
+        Assert.Equal(HttpStatusCode.Created, createAdmin.StatusCode);
+        var admin = await createAdmin.Content.ReadFromJsonAsync<TenantAdminResponse>();
+        Assert.Equal(tenant.Id, admin!.TenantId);
+
+        var anonymousClient = _factory.CreateClient();
+        var login = await anonymousClient.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest("admin@acme.test", "correct-horse"));
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var loginBody = await login.Content.ReadFromJsonAsync<LoginResponse>();
+        Assert.Equal("TenantAdmin", loginBody!.Role);
+        Assert.Equal(tenant.Id, loginBody.TenantId);
+    }
+
+    [Fact]
+    public async Task CreateAdmin_DuplicateEmail_ReturnsBadRequest()
+    {
+        var client = await OperatorClientAsync();
+        var tenantResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "Zk4500"));
+        var tenant = await tenantResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+        await client.PostAsJsonAsync($"/api/tenants/{tenant!.Id}/admins",
+            new CreateTenantAdminRequest("dup@acme.test", "correct-horse"));
+        var duplicate = await client.PostAsJsonAsync($"/api/tenants/{tenant.Id}/admins",
+            new CreateTenantAdminRequest("dup@acme.test", "another-password"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateAdmin_UnknownTenant_ReturnsNotFound()
+    {
+        var client = await OperatorClientAsync();
+
+        var response = await client.PostAsJsonAsync($"/api/tenants/{Guid.NewGuid()}/admins",
+            new CreateTenantAdminRequest("admin@acme.test", "correct-horse"));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 }

@@ -2,6 +2,7 @@ using AttendanceApi.Data;
 using AttendanceApi.Dtos;
 using AttendanceApi.Entities;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -80,6 +81,31 @@ public class TenantsController : ControllerBase
         tenant.Status = status;
         await _db.SaveChangesAsync();
         return ToResponse(tenant);
+    }
+
+    [HttpPost("{tenantId:guid}/admins")]
+    public async Task<ActionResult<TenantAdminResponse>> CreateAdmin(Guid tenantId, CreateTenantAdminRequest request)
+    {
+        var tenant = await _db.Tenants.FindAsync(tenantId);
+        if (tenant is null) return NotFound();
+
+        var emailInUse = await _db.Users.AnyAsync(u => u.Email == request.Email);
+        if (emailInUse) return BadRequest($"A user with email '{request.Email}' already exists.");
+
+        var user = new User
+        {
+            Email = request.Email,
+            PasswordHash = "",
+            Role = UserRole.TenantAdmin,
+            TenantId = tenantId,
+        };
+        var hasher = new PasswordHasher<User>();
+        user.PasswordHash = hasher.HashPassword(user, request.Password);
+
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+
+        return StatusCode(StatusCodes.Status201Created, new TenantAdminResponse(user.Id, user.Email, tenantId));
     }
 
     private static TenantResponse ToResponse(Tenant t) =>
