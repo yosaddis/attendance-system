@@ -2744,6 +2744,152 @@ git commit -m "chore: add Docker Compose, migrations, and operator bootstrap"
 
 ---
 
+### Task 10: TenantAdmin user creation (Operator-only)
+
+**Added during the whole-branch review of Tasks 1-9**: nothing in the API
+lets an Operator create a `TenantAdmin` login for a tenant — the seeded
+Operator account (Task 9) can create tenants and stations, but there is no
+way to provision the tenant-side login the web portal's entire
+authenticated surface depends on, short of writing to the database
+directly. This task closes that gap.
+
+**Files:**
+- Modify: `backend/src/AttendanceApi/Dtos/TenantDtos.cs`
+- Modify: `backend/src/AttendanceApi/Controllers/TenantsController.cs`
+- Test: `backend/tests/AttendanceApi.Tests/TenantsControllerTests.cs`
+
+**Interfaces:**
+- Consumes: `User`/`UserRole` (Task 3), `AuthorizationPolicies.Operator`
+  (Task 3, already applied at the class level on `TenantsController`).
+- Produces: `POST /api/tenants/{tenantId}/admins` → `201
+  TenantAdminResponse { Guid Id, string Email, Guid TenantId }` or `404`
+  (unknown tenant) / `400` (email already in use) — this is how an
+  Operator provisions the first (and any subsequent) `TenantAdmin` login
+  for a tenant, so the web portal plan has a real account to log in with
+  instead of requiring direct database access.
+
+- [ ] **Step 1: Write the failing test**
+
+```csharp
+// backend/tests/AttendanceApi.Tests/TenantsControllerTests.cs
+// Add this test to the existing class:
+
+[Fact]
+public async Task CreateAdmin_ThenLogin_Succeeds()
+{
+    var client = await OperatorClientAsync();
+
+    var tenantResponse = await client.PostAsJsonAsync("/api/tenants",
+        new CreateTenantRequest("Acme Foods", "Zk4500"));
+    var tenant = await tenantResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+    var createAdmin = await client.PostAsJsonAsync($"/api/tenants/{tenant!.Id}/admins",
+        new CreateTenantAdminRequest("admin@acme.test", "correct-horse"));
+    Assert.Equal(HttpStatusCode.Created, createAdmin.StatusCode);
+    var admin = await createAdmin.Content.ReadFromJsonAsync<TenantAdminResponse>();
+    Assert.Equal(tenant.Id, admin!.TenantId);
+
+    var anonymousClient = _factory.CreateClient();
+    var login = await anonymousClient.PostAsJsonAsync("/api/auth/login",
+        new LoginRequest("admin@acme.test", "correct-horse"));
+    Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+    var loginBody = await login.Content.ReadFromJsonAsync<LoginResponse>();
+    Assert.Equal("TenantAdmin", loginBody!.Role);
+    Assert.Equal(tenant.Id, loginBody.TenantId);
+}
+
+[Fact]
+public async Task CreateAdmin_DuplicateEmail_ReturnsBadRequest()
+{
+    var client = await OperatorClientAsync();
+    var tenantResponse = await client.PostAsJsonAsync("/api/tenants",
+        new CreateTenantRequest("Acme Foods", "Zk4500"));
+    var tenant = await tenantResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+    await client.PostAsJsonAsync($"/api/tenants/{tenant!.Id}/admins",
+        new CreateTenantAdminRequest("dup@acme.test", "correct-horse"));
+    var duplicate = await client.PostAsJsonAsync($"/api/tenants/{tenant.Id}/admins",
+        new CreateTenantAdminRequest("dup@acme.test", "another-password"));
+
+    Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
+}
+
+[Fact]
+public async Task CreateAdmin_UnknownTenant_ReturnsNotFound()
+{
+    var client = await OperatorClientAsync();
+
+    var response = await client.PostAsJsonAsync($"/api/tenants/{Guid.NewGuid()}/admins",
+        new CreateTenantAdminRequest("admin@acme.test", "correct-horse"));
+
+    Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `dotnet test backend/tests/AttendanceApi.Tests --filter CreateAdmin`
+Expected: FAIL — compile error, `CreateTenantAdminRequest`/`TenantAdminResponse` don't exist.
+
+- [ ] **Step 3: Add the DTOs and controller action**
+
+```csharp
+// backend/src/AttendanceApi/Dtos/TenantDtos.cs
+// Add these records alongside the existing ones:
+public record CreateTenantAdminRequest(string Email, string Password);
+public record TenantAdminResponse(Guid Id, string Email, Guid TenantId);
+```
+
+```csharp
+// backend/src/AttendanceApi/Controllers/TenantsController.cs
+// Add this action to the existing class (needs `using AttendanceApi.Entities;`
+// and `using Microsoft.AspNetCore.Identity;`, already present or easy to add):
+
+[HttpPost("{tenantId:guid}/admins")]
+public async Task<ActionResult<TenantAdminResponse>> CreateAdmin(Guid tenantId, CreateTenantAdminRequest request)
+{
+    var tenant = await _db.Tenants.FindAsync(tenantId);
+    if (tenant is null) return NotFound();
+
+    var emailInUse = await _db.Users.AnyAsync(u => u.Email == request.Email);
+    if (emailInUse) return BadRequest($"A user with email '{request.Email}' already exists.");
+
+    var user = new User
+    {
+        Email = request.Email,
+        PasswordHash = "",
+        Role = UserRole.TenantAdmin,
+        TenantId = tenantId,
+    };
+    var hasher = new PasswordHasher<User>();
+    user.PasswordHash = hasher.HashPassword(user, request.Password);
+
+    _db.Users.Add(user);
+    await _db.SaveChangesAsync();
+
+    return StatusCode(StatusCodes.Status201Created, new TenantAdminResponse(user.Id, user.Email, tenantId));
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `dotnet test backend/tests/AttendanceApi.Tests --filter CreateAdmin`
+Expected: PASS
+
+- [ ] **Step 5: Run the full suite to confirm no regressions**
+
+Run: `dotnet test backend/tests/AttendanceApi.Tests`
+Expected: PASS (all tests, count increases by 3)
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backend
+git commit -m "feat: add Operator-only TenantAdmin user creation endpoint"
+```
+
+---
+
 ## What Phase 2+ picks up from here
 
 - Template sync endpoint fan-out to multiple stations at one site (today,
