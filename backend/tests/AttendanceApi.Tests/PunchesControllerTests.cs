@@ -33,6 +33,18 @@ public class PunchesControllerTests : IClassFixture<ApiFactory>
         return (employee.Id, plaintextKey);
     }
 
+    private Guid SeedOtherTenantEmployee()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var otherTenant = new Tenant { Name = "Other Foods", DeviceVendor = DeviceVendor.Zk4500 };
+        var otherEmployee = new Employee { TenantId = otherTenant.Id, EmployeeCode = "O001", Name = "Foreign Employee" };
+        db.Tenants.Add(otherTenant);
+        db.Employees.Add(otherEmployee);
+        db.SaveChanges();
+        return otherEmployee.Id;
+    }
+
     [Fact]
     public async Task BatchIngest_IsIdempotentByPunchId()
     {
@@ -101,5 +113,30 @@ public class PunchesControllerTests : IClassFixture<ApiFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Assert.DoesNotContain(db.Punches, p => p.Id == duplicatedId);
+    }
+
+    [Fact]
+    public async Task BatchIngest_WithEmployeeFromAnotherTenant_RejectsWholeBatchAndPersistsNothing()
+    {
+        var (employeeId, stationKey) = SeedTenantEmployeeAndStation();
+        var foreignEmployeeId = SeedOtherTenantEmployee();
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Station-Key", stationKey);
+
+        var ownPunchId = Guid.NewGuid();
+        var foreignPunchId = Guid.NewGuid();
+        var request = new PunchBatchRequest(new List<PunchDto>
+        {
+            new(ownPunchId, employeeId, "In", DateTimeOffset.UtcNow),
+            new(foreignPunchId, foreignEmployeeId, "In", DateTimeOffset.UtcNow),
+        });
+
+        var response = await client.PostAsJsonAsync("/api/punches/batch", request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.DoesNotContain(db.Punches, p => p.Id == ownPunchId);
+        Assert.DoesNotContain(db.Punches, p => p.Id == foreignPunchId);
     }
 }

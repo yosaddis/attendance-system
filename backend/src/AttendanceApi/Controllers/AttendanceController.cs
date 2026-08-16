@@ -29,7 +29,7 @@ public class AttendanceController : ControllerBase
 
         var employeeIds = punches.Select(p => p.EmployeeId).Distinct().ToList();
         var employees = await _db.Employees
-            .Where(e => employeeIds.Contains(e.Id))
+            .Where(e => e.TenantId == tenantId && employeeIds.Contains(e.Id))
             .ToDictionaryAsync(e => e.Id, e => e.Name);
 
         var rows = punches

@@ -29,6 +29,7 @@ public class PunchesController : ControllerBase
         // full rather than silently dropping just the bad punch.
         var parsedTypes = new Dictionary<Guid, PunchType>();
         var seenIds = new HashSet<Guid>();
+        var employeeIds = new HashSet<Guid>();
         foreach (var dto in request.Punches)
         {
             if (!seenIds.Add(dto.Id))
@@ -38,6 +39,18 @@ public class PunchesController : ControllerBase
                 return BadRequest($"Invalid punch type '{dto.PunchType}'.");
 
             parsedTypes[dto.Id] = punchType;
+            employeeIds.Add(dto.EmployeeId);
+        }
+
+        var validEmployeeIds = (await _db.Employees
+            .Where(e => e.TenantId == tenantId && employeeIds.Contains(e.Id))
+            .Select(e => e.Id)
+            .ToListAsync()).ToHashSet();
+
+        if (employeeIds.Any(id => !validEmployeeIds.Contains(id)))
+        {
+            var unknownEmployeeId = employeeIds.First(id => !validEmployeeIds.Contains(id));
+            return BadRequest($"Employee '{unknownEmployeeId}' does not belong to this tenant.");
         }
 
         var existingIds = (await _db.Punches.Where(p => seenIds.Contains(p.Id)).Select(p => p.Id).ToListAsync()).ToHashSet();
