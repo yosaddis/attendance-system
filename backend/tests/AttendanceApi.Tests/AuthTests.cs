@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
 using AttendanceApi.Data;
@@ -80,5 +82,38 @@ public class AuthTests : IClassFixture<ApiFactory>
         Assert.False(string.IsNullOrEmpty(body!.Token));
         Assert.Equal("TenantAdmin", body.Role);
         Assert.Equal(tenantId, body.TenantId);
+    }
+
+    [Fact]
+    public async Task Login_AsTenantAdmin_IssuesTokenWithTenantIdClaim()
+    {
+        Guid tenantId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var hasher = new PasswordHasher<User>();
+            var user = new User
+            {
+                Email = "tenantadmin-jwt@zak.test",
+                PasswordHash = "",
+                Role = UserRole.TenantAdmin,
+                TenantId = tenantId,
+            };
+            user.PasswordHash = hasher.HashPassword(user, "correct-horse");
+            db.Users.Add(user);
+            db.SaveChanges();
+        }
+
+        var client = _factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/api/auth/login",
+            new LoginRequest("tenantadmin-jwt@zak.test", "correct-horse"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<LoginResponse>();
+        Assert.False(string.IsNullOrEmpty(body!.Token));
+
+        var jwt = new JwtSecurityTokenHandler().ReadJwtToken(body.Token);
+        var tenantIdClaim = jwt.Claims.Single(c => c.Type == "tenant_id");
+        Assert.Equal(tenantId.ToString(), tenantIdClaim.Value);
     }
 }
