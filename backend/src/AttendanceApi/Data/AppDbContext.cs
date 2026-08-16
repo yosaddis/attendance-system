@@ -57,6 +57,7 @@ public class AppDbContext : DbContext
             e.Property(p => p.Timestamp).HasConversion(
                 v => v.UtcDateTime,
                 v => new DateTimeOffset(v, TimeSpan.Zero));
+            e.HasIndex(p => new { p.TenantId, p.Timestamp });
         });
     }
 }

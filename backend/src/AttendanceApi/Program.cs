@@ -47,6 +47,25 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
+{
+    var exceptionFeature = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>();
+    if (exceptionFeature is not null)
+    {
+        var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+        logger.LogError(exceptionFeature.Error, "Unhandled exception processing {Method} {Path}",
+            context.Request.Method, context.Request.Path);
+    }
+
+    context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+    context.Response.ContentType = "application/problem+json";
+    await context.Response.WriteAsJsonAsync(new Microsoft.AspNetCore.Mvc.ProblemDetails
+    {
+        Status = StatusCodes.Status500InternalServerError,
+        Title = "An unexpected error occurred.",
+    });
+}));
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
