@@ -31,7 +31,7 @@ public class TenantsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<TenantResponse>> Create(CreateTenantRequest request)
     {
-        if (!Enum.TryParse<DeviceVendor>(request.DeviceVendor, out var vendor))
+        if (!Enum.TryParse<DeviceVendor>(request.DeviceVendor, out var vendor) || !Enum.IsDefined(vendor))
             return BadRequest($"Invalid device vendor '{request.DeviceVendor}'.");
 
         var tenant = new Tenant
@@ -50,7 +50,7 @@ public class TenantsController : ControllerBase
         var tenant = await _db.Tenants.FindAsync(id);
         if (tenant is null) return NotFound();
 
-        if (!Enum.TryParse<DeviceVendor>(request.DeviceVendor, out var vendor))
+        if (!Enum.TryParse<DeviceVendor>(request.DeviceVendor, out var vendor) || !Enum.IsDefined(vendor))
             return BadRequest($"Invalid device vendor '{request.DeviceVendor}'.");
 
         tenant.Name = request.Name;
@@ -65,7 +65,7 @@ public class TenantsController : ControllerBase
         var tenant = await _db.Tenants.FindAsync(id);
         if (tenant is null) return NotFound();
 
-        if (!Enum.TryParse<TenantStatus>(request.Status, out var status))
+        if (!Enum.TryParse<TenantStatus>(request.Status, out var status) || !Enum.IsDefined(status))
             return BadRequest($"Invalid status '{request.Status}'.");
 
         tenant.Status = status;

@@ -42,4 +42,45 @@ public class TenantsControllerTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
     }
+
+    [Fact]
+    public async Task Create_WithNumericDeviceVendorString_ReturnsBadRequest()
+    {
+        var client = _factory.CreateClient();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "99"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_WithInvalidDeviceVendor_ReturnsBadRequest()
+    {
+        var client = _factory.CreateClient();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "Zk4500"));
+        var created = await createResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/tenants/{created!.Id}",
+            new UpdateTenantRequest("Acme Foods", "NotARealVendor"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_WithInvalidStatus_ReturnsBadRequest()
+    {
+        var client = _factory.CreateClient();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "Zk4500"));
+        var created = await createResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+        var statusResponse = await client.PatchAsJsonAsync($"/api/tenants/{created!.Id}/status",
+            new UpdateTenantStatusRequest("NotARealStatus"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, statusResponse.StatusCode);
+    }
 }
