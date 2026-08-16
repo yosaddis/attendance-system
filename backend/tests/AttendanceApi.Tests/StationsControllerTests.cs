@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using AttendanceApi.Data;
 using AttendanceApi.Dtos;
 using AttendanceApi.Entities;
@@ -64,9 +65,30 @@ public class StationsControllerTests : IClassFixture<ApiFactory>
 
         var stationClient = _factory.CreateClient();
         stationClient.DefaultRequestHeaders.Add("X-Station-Key", body!.ApiKey);
-        var response = await stationClient.GetAsync("/api/health");
+        var response = await stationClient.GetAsync("/api/health/station");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(body.Id, payload.GetProperty("stationId").GetGuid());
+    }
+
+    [Fact]
+    public async Task Health_Station_WithoutStationKey_ReturnsUnauthorized()
+    {
+        var stationClient = _factory.CreateClient();
+        var response = await stationClient.GetAsync("/api/health/station");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Health_Station_WithInvalidStationKey_ReturnsUnauthorized()
+    {
+        var stationClient = _factory.CreateClient();
+        stationClient.DefaultRequestHeaders.Add("X-Station-Key", "not-a-real-key");
+        var response = await stationClient.GetAsync("/api/health/station");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
