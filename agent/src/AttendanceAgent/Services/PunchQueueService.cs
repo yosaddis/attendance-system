@@ -21,11 +21,8 @@ public class PunchQueueService : IPunchQueueService
         await _db.SaveChangesAsync(ct);
     }
 
-    public async Task<List<QueuedPunch>> GetPendingAsync(CancellationToken ct = default)
-    {
-        var punches = await _db.QueuedPunches.ToListAsync(ct);
-        return punches.OrderBy(p => p.Timestamp).ToList();
-    }
+    public async Task<List<QueuedPunch>> GetPendingAsync(CancellationToken ct = default) =>
+        await _db.QueuedPunches.OrderBy(p => p.Timestamp).ToListAsync(ct);
 
     public async Task RemoveSyncedAsync(IEnumerable<Guid> punchIds, CancellationToken ct = default)
     {

@@ -20,6 +20,12 @@ public class AgentDbContext : DbContext
             e.HasIndex(c => c.EmployeeCode).IsUnique();
         });
         modelBuilder.Entity<CachedTemplate>().HasKey(t => t.EmployeeId);
-        modelBuilder.Entity<QueuedPunch>().HasKey(p => p.Id);
+        modelBuilder.Entity<QueuedPunch>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.Property(p => p.Timestamp).HasConversion(
+                v => v.UtcDateTime,
+                v => new DateTimeOffset(v, TimeSpan.Zero));
+        });
     }
 }
