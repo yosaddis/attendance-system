@@ -62,4 +62,23 @@ public class SyncBackgroundServiceTests
         var remaining = await verifyScope.ServiceProvider.GetRequiredService<IPunchQueueService>().GetPendingAsync();
         Assert.Single(remaining);
     }
+
+    [Fact]
+    public async Task FlushOnce_ExplicitRejection_LeavesQueueIntact()
+    {
+        var api = new FakeBackendApiClient { SubmitResult = false };
+        var provider = BuildProvider(api);
+        using (var scope = provider.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IPunchQueueService>()
+                .EnqueueAsync(Guid.NewGuid(), "In", DateTimeOffset.UtcNow);
+        }
+
+        var sync = new SyncBackgroundService(provider.GetRequiredService<IServiceScopeFactory>());
+        await sync.FlushOnceAsync(CancellationToken.None);
+
+        using var verifyScope = provider.CreateScope();
+        var remaining = await verifyScope.ServiceProvider.GetRequiredService<IPunchQueueService>().GetPendingAsync();
+        Assert.Single(remaining);
+    }
 }
