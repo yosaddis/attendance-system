@@ -65,4 +65,92 @@ public class TenantsControllerTests : IClassFixture<ApiFactory>
             new CreateTenantRequest("Acme Foods", "Zk4500"));
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
+
+    [Fact]
+    public async Task Create_WithInvalidDeviceVendor_ReturnsBadRequest()
+    {
+        var client = await OperatorClientAsync();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "NotARealVendor"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Create_WithNumericDeviceVendorString_ReturnsBadRequest()
+    {
+        var client = await OperatorClientAsync();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "99"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_WithInvalidDeviceVendor_ReturnsBadRequest()
+    {
+        var client = await OperatorClientAsync();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "Zk4500"));
+        var created = await createResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+        var updateResponse = await client.PutAsJsonAsync($"/api/tenants/{created!.Id}",
+            new UpdateTenantRequest("Acme Foods", "NotARealVendor"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, updateResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_WithInvalidStatus_ReturnsBadRequest()
+    {
+        var client = await OperatorClientAsync();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "Zk4500"));
+        var created = await createResponse.Content.ReadFromJsonAsync<TenantResponse>();
+
+        var statusResponse = await client.PatchAsJsonAsync($"/api/tenants/{created!.Id}/status",
+            new UpdateTenantStatusRequest("NotARealStatus"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, statusResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Create_AsTenantAdmin_ReturnsForbidden()
+    {
+        Guid tenantId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = new Tenant { Name = "Acme Foods", DeviceVendor = DeviceVendor.Zk4500 };
+            db.Tenants.Add(tenant);
+            tenantId = tenant.Id;
+
+            var hasher = new PasswordHasher<User>();
+            var user = new User
+            {
+                Email = $"tenantadmin-{Guid.NewGuid()}@zak.test",
+                PasswordHash = "",
+                Role = UserRole.TenantAdmin,
+                TenantId = tenantId,
+            };
+            user.PasswordHash = hasher.HashPassword(user, "correct-horse");
+            db.Users.Add(user);
+            db.SaveChanges();
+
+            var client = _factory.CreateClient();
+            var login = await client.PostAsJsonAsync("/api/auth/login",
+                new LoginRequest(user.Email, "correct-horse"));
+            var body = await login.Content.ReadFromJsonAsync<LoginResponse>();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", body!.Token);
+
+            var response = await client.PostAsJsonAsync("/api/tenants",
+                new CreateTenantRequest("Beta Foods", "Zk4500"));
+
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+    }
 }
