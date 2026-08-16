@@ -9,6 +9,7 @@ public class AppDbContext : DbContext
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<Station> Stations => Set<Station>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -22,6 +23,12 @@ public class AppDbContext : DbContext
         {
             e.Property(u => u.Role).HasConversion<string>();
             e.HasIndex(u => u.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<Station>(e =>
+        {
+            e.Property(s => s.DeviceVendor).HasConversion<string>();
+            e.HasIndex(s => s.ApiKeyHash).IsUnique();
         });
     }
 }

@@ -9,4 +9,10 @@ public static class ClaimsPrincipalExtensions
         var value = principal.FindFirst("tenant_id")?.Value;
         return value is null ? null : Guid.Parse(value);
     }
+
+    public static Guid? StationId(this ClaimsPrincipal principal)
+    {
+        var value = principal.FindFirst("station_id")?.Value;
+        return value is null ? null : Guid.Parse(value);
+    }
 }

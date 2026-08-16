@@ -32,7 +32,9 @@ builder.Services.AddAuthentication(options =>
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
         };
-    });
+    })
+    .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, AttendanceApi.Auth.StationKeyAuthHandler>(
+        AttendanceApi.Auth.StationKeySchemes.Name, _ => { });
 
 builder.Services.AddAuthorization(options => options.AddAttendancePolicies());
 
