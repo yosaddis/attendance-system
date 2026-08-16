@@ -14,6 +14,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
 builder.Services.AddSingleton<JwtTokenService>();
+builder.Services.AddSingleton<AttendanceApi.Services.ITemplateCipher, AttendanceApi.Services.AesTemplateCipher>();
 
 builder.Services.AddAuthentication(options =>
     {

@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
     public DbSet<Station> Stations => Set<Station>();
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<Shift> Shifts => Set<Shift>();
+    public DbSet<FingerprintTemplate> FingerprintTemplates => Set<FingerprintTemplate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -41,6 +42,12 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Shift>(e =>
         {
             e.Property(s => s.PunchMode).HasConversion<string>();
+        });
+
+        modelBuilder.Entity<FingerprintTemplate>(e =>
+        {
+            e.Property(t => t.Vendor).HasConversion<string>();
+            e.HasIndex(t => t.EmployeeId).IsUnique();
         });
     }
 }
