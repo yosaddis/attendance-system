@@ -23,16 +23,9 @@ public class AttendanceController : ControllerBase
         var start = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var end = start.AddDays(1);
 
-        // The tenant filter runs server-side (critical for tenant isolation — never trust
-        // a client-supplied scope). The date-range filter runs client-side after
-        // materialization: EF Core's Sqlite provider (used in tests) cannot translate
-        // relational (>=/<) comparisons on DateTimeOffset columns, throwing at query time;
-        // Npgsql (production) can, but this keeps behavior identical across providers.
-        var punches = (await _db.Punches
-                .Where(p => p.TenantId == tenantId)
-                .ToListAsync())
-            .Where(p => p.Timestamp >= start && p.Timestamp < end)
-            .ToList();
+        var punches = await _db.Punches
+            .Where(p => p.TenantId == tenantId && p.Timestamp >= start && p.Timestamp < end)
+            .ToListAsync();
 
         var employeeIds = punches.Select(p => p.EmployeeId).Distinct().ToList();
         var employees = await _db.Employees

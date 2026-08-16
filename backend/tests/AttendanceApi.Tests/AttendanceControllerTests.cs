@@ -34,8 +34,8 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
             db.Employees.Add(employee);
             db.Stations.Add(station);
             db.Punches.AddRange(
-                new Punch { Id = Guid.NewGuid(), TenantId = tenant.Id, EmployeeId = employee.Id, StationId = station.Id, PunchType = PunchType.In, Timestamp = day.ToDateTime(new TimeOnly(9, 2)) },
-                new Punch { Id = Guid.NewGuid(), TenantId = tenant.Id, EmployeeId = employee.Id, StationId = station.Id, PunchType = PunchType.Out, Timestamp = day.ToDateTime(new TimeOnly(17, 5)) });
+                new Punch { Id = Guid.NewGuid(), TenantId = tenant.Id, EmployeeId = employee.Id, StationId = station.Id, PunchType = PunchType.In, Timestamp = new DateTimeOffset(day.ToDateTime(new TimeOnly(9, 2)), TimeSpan.Zero) },
+                new Punch { Id = Guid.NewGuid(), TenantId = tenant.Id, EmployeeId = employee.Id, StationId = station.Id, PunchType = PunchType.Out, Timestamp = new DateTimeOffset(day.ToDateTime(new TimeOnly(17, 5)), TimeSpan.Zero) });
             db.SaveChanges();
             tenantId = tenant.Id;
             employeeId = employee.Id;
@@ -86,10 +86,10 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
             db.Employees.AddRange(employeeA, employeeB);
             db.Stations.AddRange(stationA, stationB);
             db.Punches.AddRange(
-                new Punch { Id = Guid.NewGuid(), TenantId = tenantA.Id, EmployeeId = employeeA.Id, StationId = stationA.Id, PunchType = PunchType.In, Timestamp = day.ToDateTime(new TimeOnly(8, 0)) },
-                new Punch { Id = Guid.NewGuid(), TenantId = tenantA.Id, EmployeeId = employeeA.Id, StationId = stationA.Id, PunchType = PunchType.Out, Timestamp = day.ToDateTime(new TimeOnly(16, 0)) },
-                new Punch { Id = Guid.NewGuid(), TenantId = tenantB.Id, EmployeeId = employeeB.Id, StationId = stationB.Id, PunchType = PunchType.In, Timestamp = day.ToDateTime(new TimeOnly(9, 0)) },
-                new Punch { Id = Guid.NewGuid(), TenantId = tenantB.Id, EmployeeId = employeeB.Id, StationId = stationB.Id, PunchType = PunchType.Out, Timestamp = day.ToDateTime(new TimeOnly(17, 0)) });
+                new Punch { Id = Guid.NewGuid(), TenantId = tenantA.Id, EmployeeId = employeeA.Id, StationId = stationA.Id, PunchType = PunchType.In, Timestamp = new DateTimeOffset(day.ToDateTime(new TimeOnly(8, 0)), TimeSpan.Zero) },
+                new Punch { Id = Guid.NewGuid(), TenantId = tenantA.Id, EmployeeId = employeeA.Id, StationId = stationA.Id, PunchType = PunchType.Out, Timestamp = new DateTimeOffset(day.ToDateTime(new TimeOnly(16, 0)), TimeSpan.Zero) },
+                new Punch { Id = Guid.NewGuid(), TenantId = tenantB.Id, EmployeeId = employeeB.Id, StationId = stationB.Id, PunchType = PunchType.In, Timestamp = new DateTimeOffset(day.ToDateTime(new TimeOnly(9, 0)), TimeSpan.Zero) },
+                new Punch { Id = Guid.NewGuid(), TenantId = tenantB.Id, EmployeeId = employeeB.Id, StationId = stationB.Id, PunchType = PunchType.Out, Timestamp = new DateTimeOffset(day.ToDateTime(new TimeOnly(17, 0)), TimeSpan.Zero) });
             db.SaveChanges();
 
             tenantAId = tenantA.Id;
@@ -117,5 +117,52 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
 
         Assert.Contains(rows!, r => r.EmployeeId == employeeAId);
         Assert.DoesNotContain(rows!, r => r.EmployeeId == employeeBId);
+    }
+
+    [Fact]
+    public async Task DailyView_ExcludesPunchesFromOtherDates()
+    {
+        var dayOne = new DateOnly(2026, 8, 10);
+        var dayTwo = new DateOnly(2026, 8, 11);
+
+        Guid tenantId, employeeId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = new Tenant { Name = "Acme Foods", DeviceVendor = DeviceVendor.Zk4500 };
+            var employee = new Employee { TenantId = tenant.Id, EmployeeCode = "E001", Name = "Jane Doe" };
+            var station = new Station { TenantId = tenant.Id, Name = "Front Desk", DeviceVendor = DeviceVendor.Zk4500, ApiKeyHash = $"hash-{Guid.NewGuid()}" };
+            db.Tenants.Add(tenant);
+            db.Employees.Add(employee);
+            db.Stations.Add(station);
+            db.Punches.AddRange(
+                new Punch { Id = Guid.NewGuid(), TenantId = tenant.Id, EmployeeId = employee.Id, StationId = station.Id, PunchType = PunchType.In, Timestamp = new DateTimeOffset(dayOne.ToDateTime(new TimeOnly(9, 0)), TimeSpan.Zero) },
+                new Punch { Id = Guid.NewGuid(), TenantId = tenant.Id, EmployeeId = employee.Id, StationId = station.Id, PunchType = PunchType.In, Timestamp = new DateTimeOffset(dayTwo.ToDateTime(new TimeOnly(23, 0)), TimeSpan.Zero) });
+            db.SaveChanges();
+            tenantId = tenant.Id;
+            employeeId = employee.Id;
+        }
+
+        var client = _factory.CreateClient();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var hasher = new PasswordHasher<User>();
+            var user = new User { Email = $"admin-{Guid.NewGuid()}@zak.test", PasswordHash = "", Role = UserRole.TenantAdmin, TenantId = tenantId };
+            user.PasswordHash = hasher.HashPassword(user, "correct-horse");
+            db.Users.Add(user);
+            db.SaveChanges();
+
+            var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(user.Email, "correct-horse"));
+            var body = await login.Content.ReadFromJsonAsync<LoginResponse>();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", body!.Token);
+        }
+
+        var response = await client.GetAsync("/api/attendance/daily?date=2026-08-10");
+        var rows = await response.Content.ReadFromJsonAsync<List<DailyAttendanceResponse>>();
+
+        var row = Assert.Single(rows!, r => r.EmployeeId == employeeId);
+        Assert.Equal(9, row.FirstIn!.Value.Hour);
+        Assert.Equal(9, row.LastOut!.Value.Hour);
     }
 }

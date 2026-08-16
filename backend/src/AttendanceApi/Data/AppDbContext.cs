@@ -54,6 +54,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Punch>(e =>
         {
             e.Property(p => p.PunchType).HasConversion<string>();
+            e.Property(p => p.Timestamp).HasConversion(
+                v => v.UtcDateTime,
+                v => new DateTimeOffset(v, TimeSpan.Zero));
         });
     }
 }
