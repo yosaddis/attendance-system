@@ -1,6 +1,7 @@
 using AttendanceApi.Data;
 using AttendanceApi.Dtos;
 using AttendanceApi.Entities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,6 +9,7 @@ namespace AttendanceApi.Controllers;
 
 [ApiController]
 [Route("api/tenants")]
+[Authorize(Policy = AttendanceApi.Auth.AuthorizationPolicies.Operator)]
 public class TenantsController : ControllerBase
 {
     private readonly AppDbContext _db;
