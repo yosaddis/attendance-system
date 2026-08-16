@@ -31,4 +31,15 @@ public class TenantsControllerTests : IClassFixture<ApiFactory>
         Assert.Equal("Acme Foods", fetched!.Name);
         Assert.Equal("Active", fetched.Status);
     }
+
+    [Fact]
+    public async Task Create_WithInvalidDeviceVendor_ReturnsBadRequest()
+    {
+        var client = _factory.CreateClient();
+
+        var createResponse = await client.PostAsJsonAsync("/api/tenants",
+            new CreateTenantRequest("Acme Foods", "NotARealVendor"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+    }
 }

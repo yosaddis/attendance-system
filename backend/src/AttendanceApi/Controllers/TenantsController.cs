@@ -31,10 +31,13 @@ public class TenantsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<TenantResponse>> Create(CreateTenantRequest request)
     {
+        if (!Enum.TryParse<DeviceVendor>(request.DeviceVendor, out var vendor))
+            return BadRequest($"Invalid device vendor '{request.DeviceVendor}'.");
+
         var tenant = new Tenant
         {
             Name = request.Name,
-            DeviceVendor = Enum.Parse<DeviceVendor>(request.DeviceVendor),
+            DeviceVendor = vendor,
         };
         _db.Tenants.Add(tenant);
         await _db.SaveChangesAsync();
@@ -47,8 +50,11 @@ public class TenantsController : ControllerBase
         var tenant = await _db.Tenants.FindAsync(id);
         if (tenant is null) return NotFound();
 
+        if (!Enum.TryParse<DeviceVendor>(request.DeviceVendor, out var vendor))
+            return BadRequest($"Invalid device vendor '{request.DeviceVendor}'.");
+
         tenant.Name = request.Name;
-        tenant.DeviceVendor = Enum.Parse<DeviceVendor>(request.DeviceVendor);
+        tenant.DeviceVendor = vendor;
         await _db.SaveChangesAsync();
         return ToResponse(tenant);
     }
@@ -59,7 +65,10 @@ public class TenantsController : ControllerBase
         var tenant = await _db.Tenants.FindAsync(id);
         if (tenant is null) return NotFound();
 
-        tenant.Status = Enum.Parse<TenantStatus>(request.Status);
+        if (!Enum.TryParse<TenantStatus>(request.Status, out var status))
+            return BadRequest($"Invalid status '{request.Status}'.");
+
+        tenant.Status = status;
         await _db.SaveChangesAsync();
         return ToResponse(tenant);
     }
