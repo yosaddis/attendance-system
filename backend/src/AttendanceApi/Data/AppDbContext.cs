@@ -10,6 +10,8 @@ public class AppDbContext : DbContext
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Station> Stations => Set<Station>();
+    public DbSet<Employee> Employees => Set<Employee>();
+    public DbSet<Shift> Shifts => Set<Shift>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -29,6 +31,16 @@ public class AppDbContext : DbContext
         {
             e.Property(s => s.DeviceVendor).HasConversion<string>();
             e.HasIndex(s => s.ApiKeyHash).IsUnique();
+        });
+
+        modelBuilder.Entity<Employee>(e =>
+        {
+            e.HasIndex(x => new { x.TenantId, x.EmployeeCode }).IsUnique();
+        });
+
+        modelBuilder.Entity<Shift>(e =>
+        {
+            e.Property(s => s.PunchMode).HasConversion<string>();
         });
     }
 }
