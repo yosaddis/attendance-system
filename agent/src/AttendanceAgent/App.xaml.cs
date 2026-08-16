@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using AttendanceAgent.Data;
+using AttendanceAgent.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -25,6 +26,14 @@ public partial class App : Application
             .ConfigureServices(services =>
             {
                 services.AddDbContext<AgentDbContext>(options => options.UseSqlite($"Data Source={dbPath}"));
+                services.AddHttpClient<AttendanceAgent.Api.IBackendApiClient, AttendanceAgent.Api.BackendApiClient>();
+                services.AddScoped<AttendanceAgent.Services.IEmployeeDirectoryService, AttendanceAgent.Services.EmployeeDirectoryService>();
+                services.AddScoped<AttendanceAgent.Services.ITemplateCacheService, AttendanceAgent.Services.TemplateCacheService>();
+                services.AddScoped<AttendanceAgent.Services.IPunchQueueService, AttendanceAgent.Services.PunchQueueService>();
+                services.AddScoped<AttendanceAgent.Services.IPunchCaptureService, AttendanceAgent.Services.PunchCaptureService>();
+                services.AddSingleton<AttendanceAgent.Devices.IFingerprintDevice, AttendanceAgent.Devices.FakeFingerprintDevice>();
+                services.AddSingleton<AttendanceAgent.Devices.IFingerprintVerifier, AttendanceAgent.Devices.FakeFingerprintVerifier>();
+                services.AddSingleton<MainViewModel>();
                 services.AddSingleton<MainWindow>();
             })
             .Build();

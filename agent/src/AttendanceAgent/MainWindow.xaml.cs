@@ -1,11 +1,13 @@
 using System.Windows;
+using AttendanceAgent.ViewModels;
 
 namespace AttendanceAgent;
 
 public partial class MainWindow : Window
 {
-    public MainWindow()
+    public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
+        DataContext = viewModel;
     }
 }
