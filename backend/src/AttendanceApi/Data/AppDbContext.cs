@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<Shift> Shifts => Set<Shift>();
     public DbSet<FingerprintTemplate> FingerprintTemplates => Set<FingerprintTemplate>();
+    public DbSet<Punch> Punches => Set<Punch>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -48,6 +49,11 @@ public class AppDbContext : DbContext
         {
             e.Property(t => t.Vendor).HasConversion<string>();
             e.HasIndex(t => t.EmployeeId).IsUnique();
+        });
+
+        modelBuilder.Entity<Punch>(e =>
+        {
+            e.Property(p => p.PunchType).HasConversion<string>();
         });
     }
 }
