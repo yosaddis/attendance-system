@@ -61,7 +61,7 @@ public class EmployeeLookupControllerTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Lookup_EmployeeFromOtherTenant_ReturnsNotFound()
+    public async Task Lookup_SameCodeInOtherTenant_ReturnsOwnTenantsEmployee()
     {
         using (var scope = _factory.Services.CreateScope())
         {
@@ -82,6 +82,28 @@ public class EmployeeLookupControllerTests : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<EmployeeLookupResponse>();
         Assert.Equal(employeeId, body!.EmployeeId);
+    }
+
+    [Fact]
+    public async Task Lookup_CodeThatOnlyExistsInAnotherTenant_ReturnsNotFound()
+    {
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var otherTenant = new Tenant { Name = "Other Foods", DeviceVendor = DeviceVendor.Zk4500 };
+            var otherEmployee = new Employee { TenantId = otherTenant.Id, EmployeeCode = "ONLY-OTHER", Name = "Someone Else" };
+            db.Tenants.Add(otherTenant);
+            db.Employees.Add(otherEmployee);
+            db.SaveChanges();
+        }
+
+        var stationKey = SeedTenantEmployeeAndStation(out _);
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Station-Key", stationKey);
+
+        var response = await client.GetAsync("/api/employees/lookup?code=ONLY-OTHER");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
