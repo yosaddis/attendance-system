@@ -37,10 +37,10 @@ public partial class App : Application
 
         _host = HostComposition.CreateHostBuilder(dbPath).Build();
 
-        // AddHostedService<SyncBackgroundService>() only actually runs its ExecuteAsync once the
-        // host is started — without this, punches would queue locally forever and never sync.
-        await _host.StartAsync();
-
+        // The database schema and first-run settings MUST exist before the host is started:
+        // AddHostedService<SyncBackgroundService>() runs its ExecuteAsync as soon as the host
+        // starts, and it immediately queries QueuedPunches. On a fresh install (no agent.db yet)
+        // that would throw "no such table: QueuedPunches" before EnsureCreated() ever ran.
         using (var scope = _host.Services.CreateScope())
         {
             scope.ServiceProvider.GetRequiredService<AgentDbContext>().Database.EnsureCreated();
@@ -59,6 +59,19 @@ public partial class App : Application
                 db.SaveChanges();
             }
         }
+
+        // AddHostedService<SyncBackgroundService>() only actually runs its ExecuteAsync once the
+        // host is started — without this, punches would queue locally forever and never sync.
+        //
+        // Started via Task.Run rather than awaited directly: awaiting on the WPF UI thread would
+        // capture the active DispatcherSynchronizationContext, so every continuation inside
+        // SyncBackgroundService's ExecuteAsync loop (its Task.Delay, HTTP calls, EF queries) would
+        // try to resume on the UI thread — meaning the "background" sync work would actually run on
+        // the UI thread every interval, AND OnExit's bounded StopAsync wait below would be racing
+        // continuations that want that same thread. Task.Run hands StartAsync (and the synchronous
+        // BackgroundService.ExecuteAsync kick-off it triggers) to a thread-pool thread with no
+        // ambient SynchronizationContext, so the loop's continuations resume on the thread pool.
+        await Task.Run(() => _host!.StartAsync());
 
         _appScope = _host.Services.CreateScope();
         _appScope.ServiceProvider.GetRequiredService<MainWindow>().Show();
@@ -80,9 +93,25 @@ public partial class App : Application
         // Give the background service (sync loop) a chance to stop cleanly before disposing.
         // Blocking here (rather than awaiting) guarantees this completes before the process
         // continues tearing down, which an `async void OnExit` could not guarantee.
-        _host?.StopAsync().GetAwaiter().GetResult();
-        _appScope?.Dispose();
-        _host?.Dispose();
+        //
+        // Bounded by a timeout, and Dispose() is guaranteed via `finally` no matter what happens
+        // to StopAsync — it must run whether StopAsync completes, times out, or throws, otherwise
+        // _appScope/_host are leaked and the process may not exit cleanly.
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            _host?.StopAsync(cts.Token).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            _host?.Services.GetService<ILogger<App>>()?.LogError(ex, "Host failed to stop cleanly within the shutdown timeout.");
+        }
+        finally
+        {
+            _appScope?.Dispose();
+            _host?.Dispose();
+        }
+
         base.OnExit(e);
     }
 }
