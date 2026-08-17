@@ -24,7 +24,7 @@ export async function createEmployee(
     });
   } catch (err) {
     if (err instanceof BackendError && err.status === 400) {
-      return { error: "Could not add employee: that employee code is already in use." };
+      return { error: `Could not add employee: ${err.message || "please check the details and try again."}` };
     }
     throw err;
   }

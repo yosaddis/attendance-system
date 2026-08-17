@@ -9,13 +9,22 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function isValidIsoDate(candidate: string): boolean {
+  const asDate = new Date(`${candidate}T00:00:00Z`);
+  if (Number.isNaN(asDate.getTime())) return false;
+  return asDate.toISOString().slice(0, 10) === candidate;
+}
+
 export default async function AttendancePage({
   searchParams,
 }: {
   searchParams: Promise<{ date?: string }>;
 }) {
   const { date: requestedDate } = await searchParams;
-  const date = requestedDate && ISO_DATE_PATTERN.test(requestedDate) ? requestedDate : todayIsoDate();
+  const date =
+    requestedDate && ISO_DATE_PATTERN.test(requestedDate) && isValidIsoDate(requestedDate)
+      ? requestedDate
+      : todayIsoDate();
   const rows: DailyAttendanceResponse[] = await backendFetch(`/api/attendance/daily?date=${date}`, {
     token: await getToken(),
   });

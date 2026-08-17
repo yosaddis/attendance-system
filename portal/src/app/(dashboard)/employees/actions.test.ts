@@ -56,7 +56,7 @@ describe("employee actions", () => {
     expect(body.shiftId).toBe("s1");
   });
 
-  it("returns an error state instead of throwing when the backend rejects a duplicate employee code", async () => {
+  it("returns an error state instead of throwing when the backend rejects a duplicate employee code, surfacing the backend's message", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("duplicate employee code", { status: 400 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -66,7 +66,23 @@ describe("employee actions", () => {
 
     const state = await createEmployee(null, formData);
 
-    expect(state?.error).toMatch(/already in use/i);
+    expect(state?.error).toBe("Could not add employee: duplicate employee code");
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a different backend 400 message instead of the hardcoded duplicate-code text", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("shift s1 does not exist", { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const formData = new FormData();
+    formData.set("employeeCode", "E001");
+    formData.set("name", "Jane Doe");
+    formData.set("shiftId", "s1");
+
+    const state = await createEmployee(null, formData);
+
+    expect(state?.error).toBe("Could not add employee: shift s1 does not exist");
+    expect(state?.error).not.toMatch(/already in use/i);
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 

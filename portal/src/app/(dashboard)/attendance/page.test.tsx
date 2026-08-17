@@ -39,4 +39,22 @@ describe("AttendancePage", () => {
 
     expect(backendFetch).toHaveBeenCalledWith("/api/attendance/daily?date=2026-01-15", expect.anything());
   });
+
+  it("falls back to today's date when the date search param is shape-valid but calendrically impossible", async () => {
+    await AttendancePage({ searchParams: Promise.resolve({ date: "9999-99-99" }) });
+
+    expect(backendFetch).toHaveBeenCalledWith(
+      `/api/attendance/daily?date=${todayIsoDate()}`,
+      expect.anything(),
+    );
+  });
+
+  it("falls back to today's date when the date search param overflows into a different calendar date", async () => {
+    await AttendancePage({ searchParams: Promise.resolve({ date: "2026-02-30" }) });
+
+    expect(backendFetch).toHaveBeenCalledWith(
+      `/api/attendance/daily?date=${todayIsoDate()}`,
+      expect.anything(),
+    );
+  });
 });
