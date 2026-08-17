@@ -48,6 +48,15 @@ public partial class App : Application
 
             _host = HostComposition.CreateHostBuilder(dbPath).Build();
 
+            // Fails fast (Release builds only) if the fake, non-hardware fingerprint device/verifier
+            // are still the registered implementations — see StartupGuards for why shipping them
+            // unmodified would be a silent authentication bypass.
+#if DEBUG
+            StartupGuards.AssertNoFakeHardwareInRelease(_host.Services, isReleaseBuild: false);
+#else
+            StartupGuards.AssertNoFakeHardwareInRelease(_host.Services, isReleaseBuild: true);
+#endif
+
             // The database schema and first-run settings MUST exist before the host is started:
             // AddHostedService<SyncBackgroundService>() runs its ExecuteAsync as soon as the host
             // starts, and it immediately queries QueuedPunches. On a fresh install (no agent.db yet)
