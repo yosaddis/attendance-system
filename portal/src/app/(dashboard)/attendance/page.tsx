@@ -3,6 +3,8 @@ import { getToken } from "@/lib/session";
 import type { DailyAttendanceResponse } from "@/lib/types";
 import { DateNav } from "./DateNav";
 
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -13,7 +15,7 @@ export default async function AttendancePage({
   searchParams: Promise<{ date?: string }>;
 }) {
   const { date: requestedDate } = await searchParams;
-  const date = requestedDate ?? todayIsoDate();
+  const date = requestedDate && ISO_DATE_PATTERN.test(requestedDate) ? requestedDate : todayIsoDate();
   const rows: DailyAttendanceResponse[] = await backendFetch(`/api/attendance/daily?date=${date}`, {
     token: await getToken(),
   });
