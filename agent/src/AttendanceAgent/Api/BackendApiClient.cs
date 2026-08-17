@@ -47,7 +47,7 @@ public class BackendApiClient : IBackendApiClient
         return Convert.FromBase64String(body!.TemplateData);
     }
 
-    public async Task<bool> SubmitPunchesAsync(IReadOnlyList<QueuedPunch> punches, CancellationToken ct = default)
+    public async Task<PunchBatchSubmitResult> SubmitPunchesAsync(IReadOnlyList<QueuedPunch> punches, CancellationToken ct = default)
     {
         var payload = new PunchBatchPayload(punches
             .Select(p => new PunchPayload(p.Id, p.EmployeeId, p.PunchType, p.Timestamp))
@@ -55,6 +55,14 @@ public class BackendApiClient : IBackendApiClient
         var request = await BuildRequestAsync(HttpMethod.Post, "/api/punches/batch", ct);
         request.Content = JsonContent.Create(payload, options: JsonOptions);
         var response = await _http.SendAsync(request, ct);
-        return response.IsSuccessStatusCode;
+
+        if (response.IsSuccessStatusCode) return PunchBatchSubmitResult.Accepted;
+
+        // The backend rejects the WHOLE batch (400) if any single punch in it is invalid — a
+        // permanent, batch-level verdict retrying the same punches won't change. Everything else
+        // (5xx, or any other non-2xx) is treated as transient and worth retrying as-is.
+        if (response.StatusCode == HttpStatusCode.BadRequest) return PunchBatchSubmitResult.RejectedByBackend;
+
+        return PunchBatchSubmitResult.TransientFailure;
     }
 }

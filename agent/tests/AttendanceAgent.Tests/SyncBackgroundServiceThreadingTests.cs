@@ -128,10 +128,14 @@ public class SyncBackgroundServiceThreadingTests
         public Task<byte[]?> FetchTemplateAsync(Guid employeeId, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
-        public Task<bool> SubmitPunchesAsync(IReadOnlyList<QueuedPunch> punches, CancellationToken ct = default)
+        public Task<PunchBatchSubmitResult> SubmitPunchesAsync(IReadOnlyList<QueuedPunch> punches, CancellationToken ct = default)
         {
             _onSubmit();
-            return Task.FromResult(false);
+            // TransientFailure (not RejectedByBackend): the queue must stay populated across every
+            // interval so this keeps getting called — that's what proves the loop is still making
+            // progress. RejectedByBackend would drop the punch after the first attempt, leaving
+            // nothing left to retry on subsequent ticks.
+            return Task.FromResult(PunchBatchSubmitResult.TransientFailure);
         }
     }
 }

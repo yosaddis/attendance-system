@@ -11,7 +11,7 @@ public class FakeBackendApiClient : IBackendApiClient
     public byte[]? TemplateResult { get; set; }
     public bool ThrowOnTemplate { get; set; }
     public Func<Exception>? TemplateExceptionToThrow { get; set; }
-    public bool SubmitResult { get; set; } = true;
+    public PunchBatchSubmitResult SubmitResult { get; set; } = PunchBatchSubmitResult.Accepted;
     public bool ThrowOnSubmit { get; set; }
     public Func<Exception>? SubmitExceptionToThrow { get; set; }
 
@@ -29,7 +29,7 @@ public class FakeBackendApiClient : IBackendApiClient
         return Task.FromResult(TemplateResult);
     }
 
-    public Task<bool> SubmitPunchesAsync(IReadOnlyList<QueuedPunch> punches, CancellationToken ct = default)
+    public Task<PunchBatchSubmitResult> SubmitPunchesAsync(IReadOnlyList<QueuedPunch> punches, CancellationToken ct = default)
     {
         if (SubmitExceptionToThrow is not null) throw SubmitExceptionToThrow();
         if (ThrowOnSubmit) throw new HttpRequestException("offline");

@@ -50,12 +50,35 @@ public class SyncBackgroundService : BackgroundService
             var queue = scope.ServiceProvider.GetRequiredService<IPunchQueueService>();
             var api = scope.ServiceProvider.GetRequiredService<IBackendApiClient>();
 
+            // Capped so a queue built up over a multi-day outage can't post an unbounded batch in
+            // one go; anything beyond the cap is simply left queued and picked up on a later tick.
             var pending = await queue.GetPendingAsync(ct);
             if (pending.Count == 0) return;
 
-            var accepted = await api.SubmitPunchesAsync(pending, ct);
-            if (accepted)
-                await queue.RemoveSyncedAsync(pending.Select(p => p.Id), ct);
+            var result = await api.SubmitPunchesAsync(pending, ct);
+            switch (result)
+            {
+                case PunchBatchSubmitResult.Accepted:
+                    await queue.RemoveSyncedAsync(pending.Select(p => p.Id), ct);
+                    break;
+
+                case PunchBatchSubmitResult.RejectedByBackend:
+                    // The backend rejects the WHOLE batch (400) if any single punch in it is
+                    // permanently invalid (e.g. the employee was deleted server-side while this
+                    // station was offline). Retrying the same batch forever would wedge every
+                    // subsequent punch behind that one poison punch, with no cap and no visibility.
+                    // Dropping this specific batch is a deliberate, lossy-but-bounded tradeoff for
+                    // Phase 1 — logged loudly so it's visible, not silent.
+                    _logger.LogWarning(
+                        "Backend rejected a batch of {Count} punch(es) as malformed (HTTP 400); dropping them as unsyncable to avoid wedging the queue. Ids: {PunchIds}",
+                        pending.Count, string.Join(", ", pending.Select(p => p.Id)));
+                    await queue.RemoveSyncedAsync(pending.Select(p => p.Id), ct);
+                    break;
+
+                case PunchBatchSubmitResult.TransientFailure:
+                    // Leave the batch queued; worth retrying on the next tick.
+                    break;
+            }
         }
         // Widened beyond HttpRequestException for the same reason as EmployeeDirectoryService/
         // TemplateCacheService: once the host is actually started (see App.xaml.cs), an uncaught

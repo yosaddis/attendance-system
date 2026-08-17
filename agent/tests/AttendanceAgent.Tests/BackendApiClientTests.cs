@@ -83,7 +83,37 @@ public class BackendApiClientTests
 
         var result = await client.SubmitPunchesAsync(new List<QueuedPunch> { punch });
 
-        Assert.True(result);
+        Assert.Equal(PunchBatchSubmitResult.Accepted, result);
         Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+    }
+
+    [Fact]
+    public async Task SubmitPunchesAsync_HttpBadRequest_ReturnsRejectedByBackend()
+    {
+        // The backend rejects the WHOLE batch (400) if any single punch in it is invalid — a
+        // permanent, batch-level verdict that retrying won't fix. This must be distinguished from a
+        // transient/server failure so the caller can drop the poison batch instead of retrying it
+        // forever.
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var client = new BackendApiClient(new HttpClient(handler), db);
+        var punch = new QueuedPunch { Id = Guid.NewGuid(), EmployeeId = Guid.NewGuid(), PunchType = "In", Timestamp = DateTimeOffset.UtcNow };
+
+        var result = await client.SubmitPunchesAsync(new List<QueuedPunch> { punch });
+
+        Assert.Equal(PunchBatchSubmitResult.RejectedByBackend, result);
+    }
+
+    [Fact]
+    public async Task SubmitPunchesAsync_HttpServerError_ReturnsTransientFailure()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        var client = new BackendApiClient(new HttpClient(handler), db);
+        var punch = new QueuedPunch { Id = Guid.NewGuid(), EmployeeId = Guid.NewGuid(), PunchType = "In", Timestamp = DateTimeOffset.UtcNow };
+
+        var result = await client.SubmitPunchesAsync(new List<QueuedPunch> { punch });
+
+        Assert.Equal(PunchBatchSubmitResult.TransientFailure, result);
     }
 }

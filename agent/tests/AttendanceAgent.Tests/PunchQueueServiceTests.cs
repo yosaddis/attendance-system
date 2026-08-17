@@ -41,6 +41,29 @@ public class PunchQueueServiceTests
     }
 
     [Fact]
+    public async Task GetPending_MoreThanDefaultCap_ReturnsOnlyTheOldestUpToTheCap()
+    {
+        // A multi-day outage can build up a queue far larger than any single flush should post in
+        // one batch. GetPendingAsync must never hand back an unbounded result set — it caps at the
+        // oldest N (default 500) and leaves the rest for a later call.
+        using var db = TestDb.CreateInMemory();
+        var service = new PunchQueueService(db);
+        var employeeId = Guid.NewGuid();
+        var baseTime = DateTimeOffset.UtcNow.AddDays(-1);
+        for (var i = 0; i < 5; i++)
+        {
+            await service.EnqueueAsync(employeeId, "In", baseTime.AddMinutes(i));
+        }
+
+        var pending = await service.GetPendingAsync(maxCount: 3);
+
+        Assert.Equal(3, pending.Count);
+        Assert.Equal(baseTime, pending[0].Timestamp);
+        Assert.Equal(baseTime.AddMinutes(1), pending[1].Timestamp);
+        Assert.Equal(baseTime.AddMinutes(2), pending[2].Timestamp);
+    }
+
+    [Fact]
     public async Task RemoveSynced_DeletesOnlyGivenIds()
     {
         using var db = TestDb.CreateInMemory();
