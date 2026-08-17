@@ -103,9 +103,16 @@ public partial class App : Application
     /// <summary>
     /// Reached whenever anything in OnStartup's body throws before MainWindow.Show() runs. Logs if
     /// a logger happens to be available yet (it may not be — the host might have failed to build at
-    /// all), always writes to Debug output as a fallback, shows the user a message, then forces the
-    /// process to exit. Without the explicit Shutdown(1) call, a failure here would otherwise leave
-    /// a windowless process running forever under the default ShutdownMode.
+    /// all), always writes to Debug output as a fallback, then forces the process to exit. Without
+    /// the explicit Shutdown(1) call, a failure here would otherwise leave a windowless process
+    /// running forever under the default ShutdownMode.
+    ///
+    /// Deliberately does NOT show a blocking MessageBox: this is an unattended kiosk process with
+    /// no operator present most of the time. A blocking modal here would leave the process alive
+    /// (showing a dialog nobody is there to dismiss) instead of exiting, which defeats the whole
+    /// point of the try/catch around OnStartup — a supervisor/auto-restart watchdog process would
+    /// never observe this process exit, and so would never restart it. Shutdown(1) must happen
+    /// unconditionally and immediately, never gated on user interaction.
     /// </summary>
     private void HandleStartupFailure(Exception ex)
     {
@@ -116,16 +123,10 @@ public partial class App : Application
         catch
         {
             // The logger itself may be unavailable this early (e.g. the host never finished
-            // building) — fall through to the Debug/MessageBox reporting below regardless.
+            // building) — fall through to the Debug-output fallback below regardless.
         }
 
         System.Diagnostics.Debug.WriteLine($"FATAL: Attendance Agent failed to start: {ex}");
-
-        MessageBox.Show(
-            $"Attendance Agent failed to start and will now exit:\n\n{ex.Message}",
-            "Attendance Agent - Startup Failed",
-            MessageBoxButton.OK,
-            MessageBoxImage.Error);
 
         Shutdown(1);
     }
