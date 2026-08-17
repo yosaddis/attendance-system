@@ -2,6 +2,7 @@ using System.Net.Http;
 using AttendanceAgent.Api;
 using AttendanceAgent.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace AttendanceAgent.Services;
 
@@ -9,11 +10,13 @@ public class EmployeeDirectoryService : IEmployeeDirectoryService
 {
     private readonly IBackendApiClient _api;
     private readonly AgentDbContext _db;
+    private readonly ILogger<EmployeeDirectoryService> _logger;
 
-    public EmployeeDirectoryService(IBackendApiClient api, AgentDbContext db)
+    public EmployeeDirectoryService(IBackendApiClient api, AgentDbContext db, ILogger<EmployeeDirectoryService> logger)
     {
         _api = api;
         _db = db;
+        _logger = logger;
     }
 
     public async Task<EmployeeLookupResult?> ResolveAsync(string code, CancellationToken ct = default)
@@ -27,9 +30,14 @@ public class EmployeeDirectoryService : IEmployeeDirectoryService
                 return result;
             }
         }
-        catch (HttpRequestException)
+        // The backend can be unreachable/unusable in more ways than HttpRequestException: HttpClient
+        // timeouts surface as TaskCanceledException, a malformed/unexpected response body as
+        // JsonException, a bad configured URL as UriFormatException, etc. Treat any of these as
+        // "couldn't reach/use the backend right now" and fall back to the local cache, but let a
+        // deliberate caller-requested cancellation (e.g. app shutdown) propagate normally.
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            // offline or unreachable — fall through to the local cache
+            _logger.LogWarning(ex, "Employee lookup for code '{EmployeeCode}' failed against the backend; falling back to local cache.", code);
         }
 
         var cached = await _db.CachedEmployees.SingleOrDefaultAsync(e => e.EmployeeCode == code, ct);

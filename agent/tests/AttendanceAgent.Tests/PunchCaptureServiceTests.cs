@@ -1,6 +1,7 @@
-using AttendanceAgent.Api;
+﻿using AttendanceAgent.Api;
 using AttendanceAgent.Devices;
 using AttendanceAgent.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace AttendanceAgent.Tests;
@@ -19,8 +20,8 @@ public class PunchCaptureServiceTests
         };
         var queue = new PunchQueueService(db);
         var service = new PunchCaptureService(
-            new EmployeeDirectoryService(api, db),
-            new TemplateCacheService(api, db),
+            new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance),
+            new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance),
             new FakeFingerprintVerifier { AlwaysMatches = true },
             queue);
         var device = new FakeFingerprintDevice { NextCapture = new byte[] { 9, 9 } };
@@ -39,8 +40,8 @@ public class PunchCaptureServiceTests
         var api = new FakeBackendApiClient();
         var queue = new PunchQueueService(db);
         var service = new PunchCaptureService(
-            new EmployeeDirectoryService(api, db),
-            new TemplateCacheService(api, db),
+            new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance),
+            new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance),
             new FakeFingerprintVerifier(),
             queue);
 
@@ -62,8 +63,8 @@ public class PunchCaptureServiceTests
         };
         var queue = new PunchQueueService(db);
         var service = new PunchCaptureService(
-            new EmployeeDirectoryService(api, db),
-            new TemplateCacheService(api, db),
+            new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance),
+            new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance),
             new FakeFingerprintVerifier { AlwaysMatches = false },
             queue);
 
@@ -85,8 +86,8 @@ public class PunchCaptureServiceTests
         };
         var queue = new PunchQueueService(db);
         var service = new PunchCaptureService(
-            new EmployeeDirectoryService(api, db),
-            new TemplateCacheService(api, db),
+            new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance),
+            new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance),
             new FakeFingerprintVerifier { AlwaysMatches = true },
             queue);
         var device = new FakeFingerprintDevice { ThrowOnCapture = true };
@@ -110,8 +111,8 @@ public class PunchCaptureServiceTests
         };
         var queue = new PunchQueueService(db);
         var service = new PunchCaptureService(
-            new EmployeeDirectoryService(api, db),
-            new TemplateCacheService(api, db),
+            new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance),
+            new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance),
             new FakeFingerprintVerifier(),
             queue);
 

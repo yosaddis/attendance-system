@@ -2,17 +2,20 @@ using System.Net.Http;
 using AttendanceAgent.Api;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace AttendanceAgent.Services;
 
 public class SyncBackgroundService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<SyncBackgroundService> _logger;
     private readonly TimeSpan _interval;
 
-    public SyncBackgroundService(IServiceScopeFactory scopeFactory, TimeSpan? interval = null)
+    public SyncBackgroundService(IServiceScopeFactory scopeFactory, ILogger<SyncBackgroundService> logger, TimeSpan? interval = null)
     {
         _scopeFactory = scopeFactory;
+        _logger = logger;
         _interval = interval ?? TimeSpan.FromSeconds(30);
     }
 
@@ -47,9 +50,14 @@ public class SyncBackgroundService : BackgroundService
             if (accepted)
                 await queue.RemoveSyncedAsync(pending.Select(p => p.Id), ct);
         }
-        catch (HttpRequestException)
+        // Widened beyond HttpRequestException for the same reason as EmployeeDirectoryService/
+        // TemplateCacheService: once the host is actually started (see App.xaml.cs), an uncaught
+        // exception here would fault BackgroundService.ExecuteAsync and, under the default
+        // BackgroundServiceExceptionBehavior.StopHost, permanently kill the sync loop for the rest
+        // of the process's life with no retry, ever again.
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            // still offline — leave the queue untouched, retry next tick
+            _logger.LogWarning(ex, "Punch sync failed against the backend; leaving {Count} punch(es) queued for retry.", pending.Count);
         }
     }
 }
