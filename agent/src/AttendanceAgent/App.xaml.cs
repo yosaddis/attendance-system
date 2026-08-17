@@ -29,52 +29,98 @@ public partial class App : Application
         // This exists purely to keep the kiosk process alive instead of crashing silently.
         DispatcherUnhandledException += OnDispatcherUnhandledException;
 
-        var dataDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ZakAttendanceAgent");
-        Directory.CreateDirectory(dataDir);
-        var dbPath = Path.Combine(dataDir, "agent.db");
-
-        _host = HostComposition.CreateHostBuilder(dbPath).Build();
-
-        // The database schema and first-run settings MUST exist before the host is started:
-        // AddHostedService<SyncBackgroundService>() runs its ExecuteAsync as soon as the host
-        // starts, and it immediately queries QueuedPunches. On a fresh install (no agent.db yet)
-        // that would throw "no such table: QueuedPunches" before EnsureCreated() ever ran.
-        using (var scope = _host.Services.CreateScope())
+        // Everything below this point (host build, EnsureCreated against agent.db, first-run
+        // settings prompt, host start, MainWindow.Show()) runs BEFORE any window exists. Without
+        // this try/catch, a failure here (e.g. EnsureCreated() against a locked/corrupt/read-only
+        // agent.db, HostComposition.Build() failing validation, or MainWindow's InitializeComponent
+        // throwing) would still end up reported through DispatcherUnhandledException below — but
+        // that handler's `e.Handled = true` would leave a running process with zero windows, which
+        // under the default ShutdownMode (OnLastWindowClose) never exits: an invisible zombie
+        // process. Catching here guarantees we always reach Shutdown(1) ourselves instead of
+        // relying on that fallback for a failure this early.
+        try
         {
-            scope.ServiceProvider.GetRequiredService<AgentDbContext>().Database.EnsureCreated();
-        }
+            var dataDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ZakAttendanceAgent");
+            Directory.CreateDirectory(dataDir);
+            var dbPath = Path.Combine(dataDir, "agent.db");
 
-        using (var scope = _host.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<AgentDbContext>();
-            if (!db.Settings.Any())
+            _host = HostComposition.CreateHostBuilder(dbPath).Build();
+
+            // The database schema and first-run settings MUST exist before the host is started:
+            // AddHostedService<SyncBackgroundService>() runs its ExecuteAsync as soon as the host
+            // starts, and it immediately queries QueuedPunches. On a fresh install (no agent.db yet)
+            // that would throw "no such table: QueuedPunches" before EnsureCreated() ever ran.
+            using (var scope = _host.Services.CreateScope())
             {
-                var backendUrl = Microsoft.VisualBasic.Interaction.InputBox(
-                    "Backend base URL (e.g. https://attendance.example.com):", "First-run setup");
-                var apiKey = Microsoft.VisualBasic.Interaction.InputBox(
-                    "Station API key (from the admin portal's station creation screen):", "First-run setup");
-                db.Settings.Add(new AgentSettings { BackendBaseUrl = backendUrl, StationApiKey = apiKey });
-                db.SaveChanges();
+                scope.ServiceProvider.GetRequiredService<AgentDbContext>().Database.EnsureCreated();
             }
+
+            using (var scope = _host.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AgentDbContext>();
+                if (!db.Settings.Any())
+                {
+                    var backendUrl = Microsoft.VisualBasic.Interaction.InputBox(
+                        "Backend base URL (e.g. https://attendance.example.com):", "First-run setup");
+                    var apiKey = Microsoft.VisualBasic.Interaction.InputBox(
+                        "Station API key (from the admin portal's station creation screen):", "First-run setup");
+                    db.Settings.Add(new AgentSettings { BackendBaseUrl = backendUrl, StationApiKey = apiKey });
+                    db.SaveChanges();
+                }
+            }
+
+            // AddHostedService<SyncBackgroundService>() only actually runs its ExecuteAsync once the
+            // host is started — without this, punches would queue locally forever and never sync.
+            //
+            // Started via Task.Run rather than awaited directly: awaiting on the WPF UI thread would
+            // capture the active DispatcherSynchronizationContext, so every continuation inside
+            // SyncBackgroundService's ExecuteAsync loop (its Task.Delay, HTTP calls, EF queries) would
+            // try to resume on the UI thread — meaning the "background" sync work would actually run on
+            // the UI thread every interval, AND OnExit's bounded StopAsync wait below would be racing
+            // continuations that want that same thread. Task.Run hands StartAsync (and the synchronous
+            // BackgroundService.ExecuteAsync kick-off it triggers) to a thread-pool thread with no
+            // ambient SynchronizationContext, so the loop's continuations resume on the thread pool.
+            await Task.Run(() => _host!.StartAsync());
+
+            _appScope = _host.Services.CreateScope();
+            _appScope.ServiceProvider.GetRequiredService<MainWindow>().Show();
+        }
+        catch (Exception ex)
+        {
+            HandleStartupFailure(ex);
+        }
+    }
+
+    /// <summary>
+    /// Reached whenever anything in OnStartup's body throws before MainWindow.Show() runs. Logs if
+    /// a logger happens to be available yet (it may not be — the host might have failed to build at
+    /// all), always writes to Debug output as a fallback, shows the user a message, then forces the
+    /// process to exit. Without the explicit Shutdown(1) call, a failure here would otherwise leave
+    /// a windowless process running forever under the default ShutdownMode.
+    /// </summary>
+    private void HandleStartupFailure(Exception ex)
+    {
+        try
+        {
+            _host?.Services.GetService<ILogger<App>>()?.LogCritical(ex, "Startup failed before the main window could be shown; exiting.");
+        }
+        catch
+        {
+            // The logger itself may be unavailable this early (e.g. the host never finished
+            // building) — fall through to the Debug/MessageBox reporting below regardless.
         }
 
-        // AddHostedService<SyncBackgroundService>() only actually runs its ExecuteAsync once the
-        // host is started — without this, punches would queue locally forever and never sync.
-        //
-        // Started via Task.Run rather than awaited directly: awaiting on the WPF UI thread would
-        // capture the active DispatcherSynchronizationContext, so every continuation inside
-        // SyncBackgroundService's ExecuteAsync loop (its Task.Delay, HTTP calls, EF queries) would
-        // try to resume on the UI thread — meaning the "background" sync work would actually run on
-        // the UI thread every interval, AND OnExit's bounded StopAsync wait below would be racing
-        // continuations that want that same thread. Task.Run hands StartAsync (and the synchronous
-        // BackgroundService.ExecuteAsync kick-off it triggers) to a thread-pool thread with no
-        // ambient SynchronizationContext, so the loop's continuations resume on the thread pool.
-        await Task.Run(() => _host!.StartAsync());
+        System.Diagnostics.Debug.WriteLine($"FATAL: Attendance Agent failed to start: {ex}");
 
-        _appScope = _host.Services.CreateScope();
-        _appScope.ServiceProvider.GetRequiredService<MainWindow>().Show();
+        MessageBox.Show(
+            $"Attendance Agent failed to start and will now exit:\n\n{ex.Message}",
+            "Attendance Agent - Startup Failed",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
+
+        Shutdown(1);
     }
 
     private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)

@@ -6,6 +6,7 @@ using AttendanceAgent.ViewModels;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace AttendanceAgent;
 
@@ -16,11 +17,17 @@ namespace AttendanceAgent;
 /// </summary>
 public static class HostComposition
 {
-    public static IHostBuilder CreateHostBuilder(string dbPath) =>
+    public static IHostBuilder CreateHostBuilder(string dbPath, TimeSpan? syncInterval = null) =>
         Host.CreateDefaultBuilder()
-            .ConfigureServices(services => ConfigureServices(services, dbPath));
+            .ConfigureServices(services => ConfigureServices(services, dbPath, syncInterval));
 
-    public static void ConfigureServices(IServiceCollection services, string dbPath)
+    /// <param name="syncInterval">
+    /// Passed straight through to SyncBackgroundService's constructor; null (the default, used by
+    /// the real App.xaml.cs) keeps SyncBackgroundService's own 30-second default. Only exists so
+    /// tests can build the exact same composition App.xaml.cs uses but with a short interval, so
+    /// the sync loop can be observed making several passes within a test's lifetime.
+    /// </param>
+    public static void ConfigureServices(IServiceCollection services, string dbPath, TimeSpan? syncInterval = null)
     {
         services.AddDbContext<AgentDbContext>(options => options.UseSqlite($"Data Source={dbPath}"));
         services.AddHttpClient<IBackendApiClient, BackendApiClient>();
@@ -45,6 +52,9 @@ public static class HostComposition
         services.AddScoped<MainViewModel>();
         services.AddScoped<MainWindow>();
 
-        services.AddHostedService<SyncBackgroundService>();
+        services.AddHostedService(sp => new SyncBackgroundService(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<ILogger<SyncBackgroundService>>(),
+            syncInterval));
     }
 }

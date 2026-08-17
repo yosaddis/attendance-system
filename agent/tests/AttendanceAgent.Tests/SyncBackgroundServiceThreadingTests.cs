@@ -1,9 +1,11 @@
+using AttendanceAgent;
 using AttendanceAgent.Api;
 using AttendanceAgent.Data;
 using AttendanceAgent.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace AttendanceAgent.Tests;
@@ -87,6 +89,95 @@ public class SyncBackgroundServiceThreadingTests
         }
 
         Assert.Equal(0, recorder.PostOrSendCount);
+    }
+
+    /// <summary>
+    /// The test above proves the mechanism using a standalone SyncBackgroundService instance built
+    /// by hand — it does NOT exercise App.xaml.cs:74's actual production call
+    /// (`await Task.Run(() => _host!.StartAsync());`) or the real DI composition that call runs
+    /// against. If that line were ever reverted to `await _host!.StartAsync();`, the test above
+    /// would stay green while the real app deadlocked/serialized its sync loop onto the UI thread.
+    ///
+    /// This test closes that gap: it builds the host through HostComposition.CreateHostBuilder —
+    /// the exact same composition App.xaml.cs uses — swaps in a counting fake for IBackendApiClient
+    /// (the only registration that would otherwise attempt a real network call), and starts it with
+    /// the identical `Task.Run(() => host.StartAsync())` shape, from a thread carrying an installed
+    /// SynchronizationContext standing in for WPF's dispatcher. A regression that reverts the
+    /// App.xaml.cs call site to a bare `await host.StartAsync()` would resume this test's
+    /// SyncBackgroundService continuations on `startThread` (the one holding the recorder context),
+    /// which fails the same assertion below.
+    /// </summary>
+    [Fact]
+    public async Task RealHostComposition_StartAsync_ViaTaskRun_LoopNeverMarshalsBackToCallersSynchronizationContext()
+    {
+        var flushCount = 0;
+        var api = new CountingRejectingBackendApiClient(() => Interlocked.Increment(ref flushCount));
+
+        var dbPath = Path.Combine(Path.GetTempPath(), $"agent-real-host-threading-test-{Guid.NewGuid()}.db");
+        try
+        {
+            // Short interval (via HostComposition's syncInterval parameter — the same knob
+            // App.xaml.cs leaves at its 30-second default) so several loop iterations happen well
+            // within the test's wait window below.
+            using var host = HostComposition.CreateHostBuilder(dbPath, TimeSpan.FromMilliseconds(15))
+                .ConfigureServices(services =>
+                {
+                    // DI resolves the *last* registration for a given service type, so this fake
+                    // wins over HostComposition's real `AddHttpClient<IBackendApiClient,
+                    // BackendApiClient>()` registration without needing to modify HostComposition
+                    // itself or touch anything else in the composition (MainWindow/MainViewModel
+                    // registrations included) — this is genuinely the production graph.
+                    services.AddSingleton<IBackendApiClient>(api);
+                })
+                .Build();
+
+            using (var scope = host.Services.CreateScope())
+            {
+                scope.ServiceProvider.GetRequiredService<AgentDbContext>().Database.EnsureCreated();
+                await scope.ServiceProvider.GetRequiredService<IPunchQueueService>()
+                    .EnqueueAsync(Guid.NewGuid(), "In", DateTimeOffset.UtcNow);
+            }
+
+            var recorder = new RecordingSynchronizationContext();
+
+            // Mirrors App.xaml.cs:74 exactly (`await Task.Run(() => _host!.StartAsync());`), called
+            // from a thread that has a SynchronizationContext installed — this IS the production
+            // call site under test, not a hand-rolled stand-in for it.
+            var startThread = new Thread(() =>
+            {
+                SynchronizationContext.SetSynchronizationContext(recorder);
+                Task.Run(() => host.StartAsync()).GetAwaiter().GetResult();
+            });
+            startThread.Start();
+            startThread.Join();
+
+            try
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(5);
+                while (Volatile.Read(ref flushCount) < 3 && DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(20);
+                }
+
+                Assert.True(
+                    Volatile.Read(ref flushCount) >= 3,
+                    $"Expected the sync loop to make progress across several intervals; only observed {flushCount} flush attempt(s).");
+            }
+            finally
+            {
+                await host.StopAsync();
+            }
+
+            Assert.Equal(0, recorder.PostOrSendCount);
+        }
+        finally
+        {
+            // Microsoft.Data.Sqlite pools native connection handles even after SqliteConnection
+            // (and the DbContext/host that owned it) is disposed, so the file can still be locked
+            // here — clear the pool first or File.Delete throws IOException.
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
     }
 
     /// <summary>
