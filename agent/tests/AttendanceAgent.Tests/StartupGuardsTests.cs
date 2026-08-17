@@ -13,6 +13,42 @@ namespace AttendanceAgent.Tests;
 /// </summary>
 public class StartupGuardsTests
 {
+    /// <summary>
+    /// The tests below (BuildProviderWithFakes-based) only prove the guard's own logic is correct
+    /// against a hand-built, minimal ServiceCollection that registers exactly the two services the
+    /// guard inspects -- they say nothing about whether the guard, run against the DI graph
+    /// App.xaml.cs actually ships (HostComposition.CreateHostBuilder, with all of its
+    /// registrations -- AddHttpClient, EF Core, the hosted SyncBackgroundService, etc.), still
+    /// resolves IFingerprintDevice/IFingerprintVerifier to the fakes and still throws. A change to
+    /// HostComposition that altered how those two services are registered/resolved (a different
+    /// lifetime, a decorator, a factory wrapping the fake in another type) could pass every test
+    /// above while the real composition silently stopped tripping the guard.
+    ///
+    /// This test closes that gap: it builds the host through HostComposition.CreateHostBuilder --
+    /// the exact same composition App.xaml.cs uses -- and calls AssertNoFakeHardwareInRelease
+    /// against its real, fully-built IServiceProvider with isReleaseBuild: true, asserting it still
+    /// throws. This is the guard wired to what actually ships, not to a stand-in.
+    /// </summary>
+    [Fact]
+    public void AssertNoFakeHardwareInRelease_AgainstRealHostComposition_IsReleaseBuild_Throws()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"agent-startup-guard-real-composition-test-{Guid.NewGuid()}.db");
+        try
+        {
+            using var host = HostComposition.CreateHostBuilder(dbPath).Build();
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => StartupGuards.AssertNoFakeHardwareInRelease(host.Services, isReleaseBuild: true));
+
+            Assert.Contains("FakeFingerprintDevice", ex.Message);
+            Assert.Contains("Release build", ex.Message);
+        }
+        finally
+        {
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
+
     private static ServiceProvider BuildProviderWithFakes()
     {
         var services = new ServiceCollection();
