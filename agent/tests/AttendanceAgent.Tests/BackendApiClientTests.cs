@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using AttendanceAgent.Api;
 using AttendanceAgent.Data;
 using Xunit;
@@ -115,5 +116,55 @@ public class BackendApiClientTests
         var result = await client.SubmitPunchesAsync(new List<QueuedPunch> { punch });
 
         Assert.Equal(PunchBatchSubmitResult.TransientFailure, result);
+    }
+
+    [Fact]
+    public async Task FetchTemplateAsync_SendsStationKeyHeader()
+    {
+        // Only the lookup call was ever asserted for the station-key header; template fetch and
+        // punch submit went unchecked. All three request types must carry it.
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                employeeId = Guid.NewGuid(),
+                templateData = Convert.ToBase64String(new byte[] { 1, 2, 3 }),
+                enrolledAt = DateTimeOffset.UtcNow,
+            }),
+        });
+        var client = new BackendApiClient(new HttpClient(handler), db);
+
+        await client.FetchTemplateAsync(Guid.NewGuid());
+
+        Assert.Equal("secret-key", handler.LastRequest!.Headers.GetValues("X-Station-Key").Single());
+    }
+
+    [Fact]
+    public async Task SubmitPunchesAsync_SendsStationKeyHeader_AndCorrectJsonBodyShape()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
+        var client = new BackendApiClient(new HttpClient(handler), db);
+        var punchId = Guid.NewGuid();
+        var employeeId = Guid.NewGuid();
+        var timestamp = DateTimeOffset.Parse("2026-08-16T12:34:56Z");
+        var punch = new QueuedPunch { Id = punchId, EmployeeId = employeeId, PunchType = "In", Timestamp = timestamp };
+
+        await client.SubmitPunchesAsync(new List<QueuedPunch> { punch });
+
+        Assert.Equal("secret-key", handler.LastRequest!.Headers.GetValues("X-Station-Key").Single());
+
+        // Pins the actual outgoing JSON shape (field names the backend expects), not just the HTTP
+        // method — a regression that renamed/dropped a field previously would have gone unnoticed.
+        var body = await handler.LastRequest!.Content!.ReadAsStringAsync();
+        using var json = JsonDocument.Parse(body);
+        var punches = json.RootElement.GetProperty("Punches");
+        Assert.Equal(1, punches.GetArrayLength());
+        var first = punches[0];
+        Assert.Equal(punchId, first.GetProperty("Id").GetGuid());
+        Assert.Equal(employeeId, first.GetProperty("EmployeeId").GetGuid());
+        Assert.Equal("In", first.GetProperty("PunchType").GetString());
+        Assert.Equal(timestamp, first.GetProperty("Timestamp").GetDateTimeOffset());
     }
 }
