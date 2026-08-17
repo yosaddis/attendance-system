@@ -35,12 +35,27 @@ public partial class App : Application
                 services.AddSingleton<AttendanceAgent.Devices.IFingerprintVerifier, AttendanceAgent.Devices.FakeFingerprintVerifier>();
                 services.AddSingleton<MainViewModel>();
                 services.AddSingleton<MainWindow>();
+                services.AddHostedService<AttendanceAgent.Services.SyncBackgroundService>();
             })
             .Build();
 
         using (var scope = _host.Services.CreateScope())
         {
             scope.ServiceProvider.GetRequiredService<AgentDbContext>().Database.EnsureCreated();
+        }
+
+        using (var scope = _host.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AgentDbContext>();
+            if (!db.Settings.Any())
+            {
+                var backendUrl = Microsoft.VisualBasic.Interaction.InputBox(
+                    "Backend base URL (e.g. https://attendance.example.com):", "First-run setup");
+                var apiKey = Microsoft.VisualBasic.Interaction.InputBox(
+                    "Station API key (from the admin portal's station creation screen):", "First-run setup");
+                db.Settings.Add(new AgentSettings { BackendBaseUrl = backendUrl, StationApiKey = apiKey });
+                db.SaveChanges();
+            }
         }
 
         _host.Services.GetRequiredService<MainWindow>().Show();
