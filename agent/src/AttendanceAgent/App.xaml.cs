@@ -83,15 +83,13 @@ public partial class App : Application
             // AddHostedService<SyncBackgroundService>() only actually runs its ExecuteAsync once the
             // host is started — without this, punches would queue locally forever and never sync.
             //
-            // Started via Task.Run rather than awaited directly: awaiting on the WPF UI thread would
-            // capture the active DispatcherSynchronizationContext, so every continuation inside
-            // SyncBackgroundService's ExecuteAsync loop (its Task.Delay, HTTP calls, EF queries) would
-            // try to resume on the UI thread — meaning the "background" sync work would actually run on
-            // the UI thread every interval, AND OnExit's bounded StopAsync wait below would be racing
-            // continuations that want that same thread. Task.Run hands StartAsync (and the synchronous
-            // BackgroundService.ExecuteAsync kick-off it triggers) to a thread-pool thread with no
-            // ambient SynchronizationContext, so the loop's continuations resume on the thread pool.
-            await Task.Run(() => _host!.StartAsync());
+            // Delegates to HostComposition.StartHostAsync (rather than inlining Task.Run here) so
+            // SyncBackgroundServiceThreadingTests can call the exact same helper this line calls —
+            // see that helper's XML doc for why Task.Run (vs. a direct await) matters: awaiting on
+            // the WPF UI thread would capture the active DispatcherSynchronizationContext, serializing
+            // the "background" sync loop onto the UI thread and racing OnExit's bounded StopAsync
+            // wait below.
+            await HostComposition.StartHostAsync(_host!);
 
             _appScope = _host.Services.CreateScope();
             _appScope.ServiceProvider.GetRequiredService<MainWindow>().Show();

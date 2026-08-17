@@ -93,19 +93,20 @@ public class SyncBackgroundServiceThreadingTests
 
     /// <summary>
     /// The test above proves the mechanism using a standalone SyncBackgroundService instance built
-    /// by hand — it does NOT exercise App.xaml.cs:74's actual production call
-    /// (`await Task.Run(() => _host!.StartAsync());`) or the real DI composition that call runs
-    /// against. If that line were ever reverted to `await _host!.StartAsync();`, the test above
-    /// would stay green while the real app deadlocked/serialized its sync loop onto the UI thread.
+    /// by hand — it does NOT exercise App.xaml.cs's actual production call
+    /// (`await HostComposition.StartHostAsync(_host!);`) or the real DI composition that call runs
+    /// against.
     ///
     /// This test closes that gap: it builds the host through HostComposition.CreateHostBuilder —
     /// the exact same composition App.xaml.cs uses — swaps in a counting fake for IBackendApiClient
-    /// (the only registration that would otherwise attempt a real network call), and starts it with
-    /// the identical `Task.Run(() => host.StartAsync())` shape, from a thread carrying an installed
-    /// SynchronizationContext standing in for WPF's dispatcher. A regression that reverts the
-    /// App.xaml.cs call site to a bare `await host.StartAsync()` would resume this test's
-    /// SyncBackgroundService continuations on `startThread` (the one holding the recorder context),
-    /// which fails the same assertion below.
+    /// (the only registration that would otherwise attempt a real network call), and starts it by
+    /// calling HostComposition.StartHostAsync directly — the identical helper App.xaml.cs's
+    /// OnStartup calls — from a thread carrying an installed SynchronizationContext standing in for
+    /// WPF's dispatcher. Because this test calls into the same helper (not a hand-rolled copy of its
+    /// logic), a regression that changes StartHostAsync's implementation back to a bare
+    /// `host.StartAsync()` (no Task.Run) is what this test actually protects against: it would
+    /// resume this test's SyncBackgroundService continuations on `startThread` (the one holding the
+    /// recorder context), which fails the assertion below.
     /// </summary>
     [Fact]
     public async Task RealHostComposition_StartAsync_ViaTaskRun_LoopNeverMarshalsBackToCallersSynchronizationContext()
@@ -140,13 +141,16 @@ public class SyncBackgroundServiceThreadingTests
 
             var recorder = new RecordingSynchronizationContext();
 
-            // Mirrors App.xaml.cs:74 exactly (`await Task.Run(() => _host!.StartAsync());`), called
-            // from a thread that has a SynchronizationContext installed — this IS the production
-            // call site under test, not a hand-rolled stand-in for it.
+            // Calls HostComposition.StartHostAsync — the exact same helper App.xaml.cs's OnStartup
+            // calls (`await HostComposition.StartHostAsync(_host!);`) — from a thread that has a
+            // SynchronizationContext installed. This is genuinely the production call site under
+            // test: it is not a hand-rolled copy of StartHostAsync's `Task.Run(() =>
+            // host.StartAsync())` logic, so a revert of StartHostAsync's implementation (not just of
+            // this test) is what the assertion below actually protects.
             var startThread = new Thread(() =>
             {
                 SynchronizationContext.SetSynchronizationContext(recorder);
-                Task.Run(() => host.StartAsync()).GetAwaiter().GetResult();
+                HostComposition.StartHostAsync(host).GetAwaiter().GetResult();
             });
             startThread.Start();
             startThread.Join();

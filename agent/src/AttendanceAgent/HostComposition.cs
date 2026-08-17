@@ -57,4 +57,25 @@ public static class HostComposition
             sp.GetRequiredService<ILogger<SyncBackgroundService>>(),
             syncInterval));
     }
+
+    /// <summary>
+    /// Starts <paramref name="host"/> the way App.xaml.cs's OnStartup does — via Task.Run rather
+    /// than a direct `await host.StartAsync()`.
+    ///
+    /// SynchronizationContext.Current is a plain [ThreadStatic] on the CLR — it never flows across
+    /// a Task.Run boundary onto a thread-pool thread. StartAsync synchronously kicks off
+    /// BackgroundService.ExecuteAsync up to its first await, so running StartAsync itself via
+    /// Task.Run guarantees ExecuteAsync's subsequent awaits (Task.Delay, EF queries, HTTP calls —
+    /// see SyncBackgroundService) capture a *null* ambient SynchronizationContext, not the caller's.
+    /// Awaiting `host.StartAsync()` directly on a thread that has one installed (e.g. WPF's
+    /// DispatcherSynchronizationContext) would instead capture it, and every sync-loop iteration
+    /// would try to marshal its continuation back to the UI thread — serializing/deadlocking the
+    /// "background" work against the UI thread and against OnExit's bounded StopAsync wait.
+    ///
+    /// Extracted here (rather than left inlined in OnStartup) so a test can call this exact helper
+    /// against a real host and prove the mechanism holds, instead of hand-rolling a copy of
+    /// `Task.Run(() => host.StartAsync())` that could silently drift from what App.xaml.cs actually
+    /// calls — see SyncBackgroundServiceThreadingTests.
+    /// </summary>
+    public static Task StartHostAsync(IHost host) => Task.Run(() => host.StartAsync());
 }
