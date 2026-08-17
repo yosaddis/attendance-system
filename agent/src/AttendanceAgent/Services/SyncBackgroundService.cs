@@ -37,15 +37,22 @@ public class SyncBackgroundService : BackgroundService
 
     public async Task FlushOnceAsync(CancellationToken ct)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var queue = scope.ServiceProvider.GetRequiredService<IPunchQueueService>();
-        var api = scope.ServiceProvider.GetRequiredService<IBackendApiClient>();
-
-        var pending = await queue.GetPendingAsync(ct);
-        if (pending.Count == 0) return;
-
+        // Widened to wrap the whole method — scope creation, both GetRequiredService calls, and
+        // GetPendingAsync included — not just the submit call. Any exception from those (e.g. a
+        // SqliteException because the schema doesn't exist yet, or any other DB-layer failure) was
+        // previously unguarded and would propagate out of FlushOnceAsync into ExecuteAsync's
+        // unguarded `await FlushOnceAsync(stoppingToken)` call, faulting BackgroundService and, under
+        // the default BackgroundServiceExceptionBehavior.StopHost, permanently killing the sync loop
+        // for the rest of the process's life with no retry, ever again.
         try
         {
+            using var scope = _scopeFactory.CreateScope();
+            var queue = scope.ServiceProvider.GetRequiredService<IPunchQueueService>();
+            var api = scope.ServiceProvider.GetRequiredService<IBackendApiClient>();
+
+            var pending = await queue.GetPendingAsync(ct);
+            if (pending.Count == 0) return;
+
             var accepted = await api.SubmitPunchesAsync(pending, ct);
             if (accepted)
                 await queue.RemoveSyncedAsync(pending.Select(p => p.Id), ct);
@@ -57,7 +64,7 @@ public class SyncBackgroundService : BackgroundService
         // of the process's life with no retry, ever again.
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            _logger.LogWarning(ex, "Punch sync failed against the backend; leaving {Count} punch(es) queued for retry.", pending.Count);
+            _logger.LogWarning(ex, "Punch sync failed against the backend; leaving punch(es) queued for retry.");
         }
     }
 }
