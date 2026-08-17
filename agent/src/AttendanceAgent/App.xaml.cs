@@ -12,7 +12,7 @@ public partial class App : Application
 {
     private IHost? _host;
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
@@ -39,6 +39,10 @@ public partial class App : Application
             })
             .Build();
 
+        // AddHostedService<SyncBackgroundService>() only actually runs its ExecuteAsync once the
+        // host is started — without this, punches would queue locally forever and never sync.
+        await _host.StartAsync();
+
         using (var scope = _host.Services.CreateScope())
         {
             scope.ServiceProvider.GetRequiredService<AgentDbContext>().Database.EnsureCreated();
@@ -63,6 +67,10 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // Give the background service (sync loop) a chance to stop cleanly before disposing.
+        // Blocking here (rather than awaiting) guarantees this completes before the process
+        // continues tearing down, which an `async void OnExit` could not guarantee.
+        _host?.StopAsync().GetAwaiter().GetResult();
         _host?.Dispose();
         base.OnExit(e);
     }
