@@ -7,11 +7,20 @@ export default async function LoginPage({
 }) {
   const { error } = await searchParams;
 
+  const errorMessage =
+    error === "unreachable"
+      ? "Unable to reach the server. Please try again."
+      : error === "role"
+        ? "This account doesn't have access to the portal."
+        : error
+          ? "Invalid email or password."
+          : null;
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <form action={login} className="w-full max-w-sm space-y-4 border rounded p-6">
         <h1 className="text-xl font-semibold">ZAK Attendance — Sign in</h1>
-        {error && <p className="text-red-600 text-sm">Invalid email or password.</p>}
+        {errorMessage && <p className="text-red-600 text-sm">{errorMessage}</p>}
         <label className="flex flex-col text-sm gap-1">
           Email
           <input type="email" name="email" required className="border rounded px-2 py-1" />

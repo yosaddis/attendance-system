@@ -41,7 +41,7 @@ describe("login action", () => {
     expect(redirect).toHaveBeenCalledWith("/attendance");
   });
 
-  it("redirects to /login?error=1 without setting a cookie on invalid credentials", async () => {
+  it("redirects to /login?error=invalid without setting a cookie on invalid credentials", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 401 })));
     const formData = new FormData();
     formData.set("email", "admin@acme.test");
@@ -50,6 +50,50 @@ describe("login action", () => {
     await login(formData);
 
     expect(cookieStore.get(SESSION_COOKIE)).toBeUndefined();
-    expect(redirect).toHaveBeenCalledWith("/login?error=1");
+    expect(redirect).toHaveBeenCalledWith("/login?error=invalid");
+  });
+
+  it("redirects to /login?error=unreachable without setting a cookie when the backend can't be reached", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("fetch failed")),
+    );
+    const formData = new FormData();
+    formData.set("email", "admin@acme.test");
+    formData.set("password", "correct-horse");
+
+    await login(formData);
+
+    expect(cookieStore.get(SESSION_COOKIE)).toBeUndefined();
+    expect(redirect).toHaveBeenCalledWith("/login?error=unreachable");
+  });
+
+  it("redirects to /login?error=unreachable without setting a cookie on a backend 500", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("boom", { status: 500 })));
+    const formData = new FormData();
+    formData.set("email", "admin@acme.test");
+    formData.set("password", "correct-horse");
+
+    await login(formData);
+
+    expect(cookieStore.get(SESSION_COOKIE)).toBeUndefined();
+    expect(redirect).toHaveBeenCalledWith("/login?error=unreachable");
+  });
+
+  it("redirects to /login?error=role without setting a cookie when the user is not a TenantAdmin", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ token: "jwt-abc", role: "Operator", tenantId: "t1" }), { status: 200 }),
+      ),
+    );
+    const formData = new FormData();
+    formData.set("email", "operator@acme.test");
+    formData.set("password", "correct-horse");
+
+    await login(formData);
+
+    expect(cookieStore.get(SESSION_COOKIE)).toBeUndefined();
+    expect(redirect).toHaveBeenCalledWith("/login?error=role");
   });
 });
