@@ -67,12 +67,28 @@ public class TemplateCacheServiceTests
     [Fact]
     public async Task GetTemplateAsync_CallerRequestedCancellation_Propagates()
     {
+        // See EmployeeDirectoryServiceTests.ResolveAsync_CallerRequestedCancellation_Propagates for
+        // why the token is cancelled from *inside* the fake's throwing method (right before it
+        // throws a plain InvalidOperationException) rather than pre-cancelled before the call.
+        // Pre-cancelling and throwing OperationCanceledException wouldn't discriminate here either:
+        // the fallback cache-read below (`_db.CachedTemplates.FindAsync(..., ct)`) also throws
+        // OperationCanceledException once ct is cancelled, so the test would pass identically even
+        // with the `when (!ct.IsCancellationRequested)` guard removed. With this shape, an intact
+        // guard propagates the InvalidOperationException immediately (fallback never runs); a
+        // removed guard would swallow it and let the fallback throw OperationCanceledException
+        // instead — a different exception type that fails this assertion.
         using var db = TestDb.CreateInMemory();
         using var cts = new CancellationTokenSource();
-        var api = new FakeBackendApiClient { TemplateExceptionToThrow = () => new OperationCanceledException(cts.Token) };
+        var api = new FakeBackendApiClient
+        {
+            TemplateExceptionToThrow = () =>
+            {
+                cts.Cancel();
+                return new InvalidOperationException("simulated failure");
+            },
+        };
         var service = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
-        cts.Cancel();
 
-        await Assert.ThrowsAsync<OperationCanceledException>(() => service.GetTemplateAsync(EmployeeId, cts.Token));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetTemplateAsync(EmployeeId, cts.Token));
     }
 }
