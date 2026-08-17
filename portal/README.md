@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Attendance Web Portal
 
-## Getting Started
+## Local development
 
-First, run the development server:
+1. Copy `.env.local.example` to `.env.local` and point `BACKEND_API_URL`
+   at a running instance of the backend API.
+2. `npm install`
+3. `npm run dev` — the portal runs at `http://localhost:3000`.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Running tests
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`npm test`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Server Actions and middleware are tested directly (no browser needed) by
+mocking `next/headers`, `next/navigation`, and `next/cache`, and by
+stubbing `global.fetch`. Component tests use React Testing Library.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Manual verification checklist (run once per significant change)
 
-## Learn More
+This cannot be automated — it requires a live backend and a real browser.
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Start the backend (`docker compose up` from `backend/`, or `dotnet
+   run`), seed an Operator, and use it to create a tenant, a station, and
+   log in as that operator to create a `TenantAdmin` user for the tenant
+   (or seed one directly via the database for local testing).
+2. Start the portal, visit `http://localhost:3000/login`, sign in as the
+   `TenantAdmin` user.
+3. On **Shifts**, create a shift; confirm it appears in the table.
+4. On **Employees**, create an employee, assign the shift from Step 3;
+   confirm the employee list shows the shift name, not "—".
+5. On **Attendance**, change the date picker to a date with no punches;
+   confirm an empty table (not an error). Use the backend's punch
+   ingestion endpoint directly (or the desktop agent) to record a punch
+   for today, then confirm it appears after reloading `/attendance`.
+6. Resize the browser to a phone width (~375px) and repeat steps 3-5;
+   confirm the nav wraps sensibly and tables scroll horizontally instead
+   of breaking the page layout.
+7. Click **Log out**; confirm redirect to `/login` and that navigating
+   directly to `/attendance` afterward also redirects to `/login`.
