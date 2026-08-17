@@ -31,12 +31,13 @@ describe("employee actions", () => {
     formData.set("employeeCode", "E001");
     formData.set("name", "Jane Doe");
 
-    await createEmployee(formData);
+    const state = await createEmployee(null, formData);
 
     const [, init] = fetchMock.mock.calls[0];
     const body = JSON.parse(init.body as string);
     expect(body).toEqual({ employeeCode: "E001", name: "Jane Doe", shiftId: null });
     expect(revalidatePath).toHaveBeenCalledWith("/employees");
+    expect(state).toBeNull();
   });
 
   it("posts the selected shiftId when provided", async () => {
@@ -48,11 +49,37 @@ describe("employee actions", () => {
     formData.set("name", "Jane Doe");
     formData.set("shiftId", "s1");
 
-    await createEmployee(formData);
+    await createEmployee(null, formData);
 
     const [, init] = fetchMock.mock.calls[0];
     const body = JSON.parse(init.body as string);
     expect(body.shiftId).toBe("s1");
+  });
+
+  it("returns an error state instead of throwing when the backend rejects a duplicate employee code", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("duplicate employee code", { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const formData = new FormData();
+    formData.set("employeeCode", "E001");
+    formData.set("name", "Jane Doe");
+
+    const state = await createEmployee(null, formData);
+
+    expect(state?.error).toMatch(/already in use/i);
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("rethrows non-400 backend errors", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("boom", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const formData = new FormData();
+    formData.set("employeeCode", "E001");
+    formData.set("name", "Jane Doe");
+
+    await expect(createEmployee(null, formData)).rejects.toThrow();
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("deletes an employee by id and revalidates", async () => {

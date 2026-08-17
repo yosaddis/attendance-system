@@ -1,11 +1,22 @@
 "use client";
 
+import { useActionState } from "react";
 import type { ShiftResponse } from "@/lib/types";
-import { createEmployee } from "./actions";
+import { createEmployee, type CreateEmployeeState } from "./actions";
 
 export function EmployeeForm({ shifts }: { shifts: ShiftResponse[] }) {
+  const [state, formAction, isPending] = useActionState<CreateEmployeeState, FormData>(
+    createEmployee,
+    null,
+  );
+
   return (
-    <form action={createEmployee} className="grid grid-cols-2 gap-2 sm:grid-cols-4 items-end">
+    <form action={formAction} className="grid grid-cols-2 gap-2 sm:grid-cols-4 items-end">
+      {state?.error && (
+        <p role="alert" className="col-span-full text-red-600 text-sm">
+          {state.error}
+        </p>
+      )}
       <label htmlFor="employeeCode" className="flex flex-col text-sm gap-1">
         Employee code
         <input id="employeeCode" name="employeeCode" required className="border rounded px-2 py-1" />
@@ -25,7 +36,7 @@ export function EmployeeForm({ shifts }: { shifts: ShiftResponse[] }) {
           ))}
         </select>
       </label>
-      <button type="submit" className="bg-blue-600 text-white rounded px-3 py-1">
+      <button type="submit" disabled={isPending} className="bg-blue-600 text-white rounded px-3 py-1">
         Add employee
       </button>
     </form>

@@ -1,10 +1,21 @@
 "use client";
 
-import { createShift } from "./actions";
+import { useActionState } from "react";
+import { createShift, type CreateShiftState } from "./actions";
 
 export function ShiftForm() {
+  const [state, formAction, isPending] = useActionState<CreateShiftState, FormData>(
+    createShift,
+    null,
+  );
+
   return (
-    <form action={createShift} className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6 items-end">
+    <form action={formAction} className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6 items-end">
+      {state?.error && (
+        <p role="alert" className="col-span-full text-red-600 text-sm">
+          {state.error}
+        </p>
+      )}
       <label className="flex flex-col text-sm gap-1">
         Name
         <input name="name" required className="border rounded px-2 py-1" />
@@ -28,7 +39,7 @@ export function ShiftForm() {
           <option value="FourPunch">4-punch (+ breaks)</option>
         </select>
       </label>
-      <button type="submit" className="bg-blue-600 text-white rounded px-3 py-1">
+      <button type="submit" disabled={isPending} className="bg-blue-600 text-white rounded px-3 py-1">
         Add shift
       </button>
     </form>

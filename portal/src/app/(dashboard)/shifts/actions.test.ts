@@ -34,12 +34,30 @@ describe("shift actions", () => {
     formData.set("graceMinutes", "10");
     formData.set("punchMode", "TwoPunch");
 
-    await createShift(formData);
+    const state = await createShift(null, formData);
 
     const [, init] = fetchMock.mock.calls[0];
     const body = JSON.parse(init.body as string);
     expect(body).toMatchObject({ name: "Day Shift", startTime: "09:00:00", punchMode: "TwoPunch" });
     expect(revalidatePath).toHaveBeenCalledWith("/shifts");
+    expect(state).toBeNull();
+  });
+
+  it("returns an error state instead of throwing when the backend rejects the shift", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("bad shift", { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const formData = new FormData();
+    formData.set("name", "Day Shift");
+    formData.set("startTime", "09:00:00");
+    formData.set("endTime", "17:00:00");
+    formData.set("graceMinutes", "10");
+    formData.set("punchMode", "TwoPunch");
+
+    const state = await createShift(null, formData);
+
+    expect(state?.error).toBeTruthy();
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("deletes a shift by id and revalidates", async () => {
