@@ -29,6 +29,13 @@ public class TemplateCacheService : ITemplateCacheService
                 await UpsertCacheAsync(employeeId, result, ct);
                 return result;
             }
+
+            // The backend call SUCCEEDED (no exception) and explicitly said "not found" — a
+            // definitive verdict, not "backend unreachable." Purge any stale cached template
+            // instead of falling through to it, the same way EmployeeDirectoryService.ResolveAsync
+            // does for a deleted employee.
+            await PurgeCachedTemplateAsync(employeeId, ct);
+            return null;
         }
         // See EmployeeDirectoryService.ResolveAsync for why this is widened beyond
         // HttpRequestException: timeouts, malformed responses, and corrupt base64 template data
@@ -40,6 +47,16 @@ public class TemplateCacheService : ITemplateCacheService
 
         var cached = await _db.CachedTemplates.FindAsync(new object[] { employeeId }, ct);
         return cached?.TemplateData;
+    }
+
+    private async Task PurgeCachedTemplateAsync(Guid employeeId, CancellationToken ct)
+    {
+        var cached = await _db.CachedTemplates.FindAsync(new object[] { employeeId }, ct);
+        if (cached is not null)
+        {
+            _db.CachedTemplates.Remove(cached);
+            await _db.SaveChangesAsync(ct);
+        }
     }
 
     private async Task UpsertCacheAsync(Guid employeeId, byte[] templateData, CancellationToken ct)

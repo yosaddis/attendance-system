@@ -65,6 +65,25 @@ public class TemplateCacheServiceTests
     }
 
     [Fact]
+    public async Task GetTemplateAsync_DefinitiveNotFound_PurgesStaleCacheAndReturnsNull()
+    {
+        // The backend call SUCCEEDED (no exception) and returned null — a definitive "no template
+        // for this employee anymore" signal (e.g. the employee/template was deleted server-side),
+        // not "backend unreachable." Must NOT fall through to the stale cached template; must purge
+        // it instead.
+        using var db = TestDb.CreateInMemory();
+        db.CachedTemplates.Add(new CachedTemplate { EmployeeId = EmployeeId, TemplateData = new byte[] { 4, 5, 6 }, CachedAt = DateTimeOffset.UtcNow });
+        db.SaveChanges();
+        var api = new FakeBackendApiClient { TemplateResult = null };
+        var service = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+
+        var result = await service.GetTemplateAsync(EmployeeId);
+
+        Assert.Null(result);
+        Assert.Null(await db.CachedTemplates.FindAsync(EmployeeId));
+    }
+
+    [Fact]
     public async Task GetTemplateAsync_CallerRequestedCancellation_Propagates()
     {
         // See EmployeeDirectoryServiceTests.ResolveAsync_CallerRequestedCancellation_Propagates for

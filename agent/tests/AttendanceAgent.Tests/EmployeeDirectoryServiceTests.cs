@@ -66,6 +66,51 @@ public class EmployeeDirectoryServiceTests
     }
 
     [Fact]
+    public async Task ResolveAsync_DefinitiveNotFound_PurgesStaleCacheAndReturnsNull()
+    {
+        // The backend call SUCCEEDED (no exception) and returned null — a definitive "this
+        // employee doesn't exist anymore" signal, e.g. terminated/deleted server-side. This must
+        // NOT fall through to the stale cache (that would let a deleted employee keep punching
+        // indefinitely from any station that once cached them) — it must purge the cache entry too.
+        using var db = TestDb.CreateInMemory();
+        db.CachedEmployees.Add(new CachedEmployee { EmployeeId = EmployeeId, EmployeeCode = "E001", Name = "Jane Doe", CachedAt = DateTimeOffset.UtcNow });
+        db.SaveChanges();
+        var api = new FakeBackendApiClient { LookupResult = null };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Null(result);
+        Assert.Null(await db.CachedEmployees.FindAsync(EmployeeId));
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ReassignedEmployeeCode_DoesNotCrash_AndCacheReflectsNewEmployee()
+    {
+        // CachedEmployees has a unique index on EmployeeCode. If a code is reassigned server-side
+        // (old employee deleted, new employee created with the same code), the id-keyed lookup in
+        // UpsertCacheAsync won't find the old row (different EmployeeId) and a naive Add() would
+        // collide with it on the unique index, throwing DbUpdateException uncaught.
+        using var db = TestDb.CreateInMemory();
+        var oldEmployeeId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        db.CachedEmployees.Add(new CachedEmployee { EmployeeId = oldEmployeeId, EmployeeCode = "E001", Name = "Old Employee", CachedAt = DateTimeOffset.UtcNow });
+        db.SaveChanges();
+
+        var newEmployeeId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(newEmployeeId, "E001", "New Employee") };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Equal("New Employee", result!.Name);
+        Assert.Null(await db.CachedEmployees.FindAsync(oldEmployeeId));
+        var cachedNew = await db.CachedEmployees.FindAsync(newEmployeeId);
+        Assert.NotNull(cachedNew);
+        Assert.Equal("New Employee", cachedNew!.Name);
+        Assert.Equal("E001", cachedNew.EmployeeCode);
+    }
+
+    [Fact]
     public async Task ResolveAsync_CallerRequestedCancellation_Propagates()
     {
         // A deliberate caller-requested cancellation (e.g. app shutdown) must NOT be swallowed as
