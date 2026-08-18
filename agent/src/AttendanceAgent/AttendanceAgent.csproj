@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,6 +15,36 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.30" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="SecuBSPMx.NET">
+      <HintPath>Vendor\SecuGen\x64\SecuBSPMx.NET.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Microsoft.DotNet.IjwHost does NOT resolve from nuget.org (confirmed via
+      "dotnet add package Microsoft.DotNet.IjwHost, version 8.0.0": NU1101,
+      "Unable to find package", it is not published under that package ID).
+      SecuBSPMx.NET.dll is a C++/CLI mixed mode (IJW) assembly and still needs
+      Ijwhost.dll to load under modern .NET, so it is copied next to the other
+      vendor binaries instead (sourced from the vendor's own ReDist samples,
+      same place SecuBSPMx.dll/sgfpamx.dll came from).
+
+      Link="<name>.dll" flattens the copied file to the output root (next to
+      AttendanceAgent.exe and SecuBSPMx.NET.dll) instead of preserving the
+      Vendor\SecuGen\x64\ subfolder structure, which is the SDK-style default
+      for CopyToOutputDirectory items. Windows resolves a native DLL's own
+      dependencies (SecuBSPMx.dll, sgfpamx.dll) and the IJW shim (Ijwhost.dll)
+      by searching the directory the loading module lives in first — without
+      Link, they would land in a subfolder Windows never looks in, and the
+      mixed-mode assembly would fail to load at runtime.
+    -->
+    <None Include="Vendor\SecuGen\x64\SecuBSPMx.dll" CopyToOutputDirectory="PreserveNewest" Link="SecuBSPMx.dll" />
+    <None Include="Vendor\SecuGen\x64\sgfpamx.dll" CopyToOutputDirectory="PreserveNewest" Link="sgfpamx.dll" />
+    <None Include="Vendor\SecuGen\x64\Ijwhost.dll" CopyToOutputDirectory="PreserveNewest" Link="Ijwhost.dll" />
   </ItemGroup>
 
 </Project>

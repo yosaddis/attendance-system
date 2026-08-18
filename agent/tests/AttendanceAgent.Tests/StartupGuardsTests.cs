@@ -18,30 +18,43 @@ public class StartupGuardsTests
     /// against a hand-built, minimal ServiceCollection that registers exactly the two services the
     /// guard inspects -- they say nothing about whether the guard, run against the DI graph
     /// App.xaml.cs actually ships (HostComposition.CreateHostBuilder, with all of its
-    /// registrations -- AddHttpClient, EF Core, the hosted SyncBackgroundService, etc.), still
-    /// resolves IFingerprintDevice/IFingerprintVerifier to the fakes and still throws. A change to
+    /// registrations -- AddHttpClient, EF Core, the hosted SyncBackgroundService, etc.), resolves
+    /// IFingerprintDevice/IFingerprintVerifier the way this build configuration intends. A change to
     /// HostComposition that altered how those two services are registered/resolved (a different
     /// lifetime, a decorator, a factory wrapping the fake in another type) could pass every test
-    /// above while the real composition silently stopped tripping the guard.
+    /// above while the real composition silently drifted from what it's supposed to wire up.
     ///
     /// This test closes that gap: it builds the host through HostComposition.CreateHostBuilder --
     /// the exact same composition App.xaml.cs uses -- and calls AssertNoFakeHardwareInRelease
-    /// against its real, fully-built IServiceProvider with isReleaseBuild: true, asserting it still
-    /// throws. This is the guard wired to what actually ships, not to a stand-in.
+    /// against its real, fully-built IServiceProvider with isReleaseBuild: true. This is the guard
+    /// wired to what actually ships, not to a stand-in.
+    ///
+    /// The expected outcome flips with the build configuration this test assembly (and, via
+    /// ProjectReference, AttendanceAgent itself) is compiled under -- deliberately, and by design:
+    /// before Task 10 (real SecuGen integration), HostComposition had nothing but fakes to
+    /// register, so a genuine Release build would ALWAYS fail this guard -- exactly the gap Task 10
+    /// closes. Compiled Debug, HostComposition still wires up the fakes (see its #if DEBUG /
+    /// #else), so the guard must still throw here. Compiled Release, HostComposition now wires up
+    /// SecuGenFingerprintDevice/SecuGenFingerprintVerifier, so the guard must NOT throw -- asserting
+    /// otherwise here would be re-encoding the pre-Task-10 bug as a requirement.
     /// </summary>
     [Fact]
-    public void AssertNoFakeHardwareInRelease_AgainstRealHostComposition_IsReleaseBuild_Throws()
+    public void AssertNoFakeHardwareInRelease_AgainstRealHostComposition_IsReleaseBuild()
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"agent-startup-guard-real-composition-test-{Guid.NewGuid()}.db");
         try
         {
             using var host = HostComposition.CreateHostBuilder(dbPath).Build();
 
+#if DEBUG
             var ex = Assert.Throws<InvalidOperationException>(
                 () => StartupGuards.AssertNoFakeHardwareInRelease(host.Services, isReleaseBuild: true));
 
             Assert.Contains("FakeFingerprintDevice", ex.Message);
             Assert.Contains("Release build", ex.Message);
+#else
+            StartupGuards.AssertNoFakeHardwareInRelease(host.Services, isReleaseBuild: true);
+#endif
         }
         finally
         {

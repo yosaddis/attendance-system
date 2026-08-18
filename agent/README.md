@@ -23,29 +23,28 @@ or backend server is required.
 
 ## Real hardware bring-up (manual, not automated)
 
-`FakeFingerprintDevice`/`FakeFingerprintVerifier` are registered by
-default. To integrate a real scanner:
+SecuGen SDK integration is wired in (`SecuGenFingerprintDevice`,
+`SecuGenFingerprintVerifier`, Release builds only — Debug still uses the
+fakes for hardware-free local development). The following still requires
+a physical SecuGen device (Hamster Plus or compatible FDx-family reader)
+and cannot be automated:
 
-1. Install the vendor SDK (ZKFinger SDK for ZK4500, or the SecuGen FDx SDK
-   Pro for Hamster Plus) and reference its .NET wrapper DLL from
-   `AttendanceAgent.csproj`.
-2. Implement `IFingerprintDevice`/`IFingerprintVerifier` against that SDK
-   (e.g. `ZkFingerprintDevice`, `ZkFingerprintVerifier`), following the
-   constraint in this plan's Global Constraints section: acquire the
-   device handle only inside `Capture()`'s call path and release it in a
-   `finally` — `DeviceCapture.CaptureOnce` already enforces this shape, so
-   the real device only needs to implement the three interface methods
-   correctly.
-3. Swap the DI registrations in `App.xaml.cs` from the fakes to the real
-   implementations.
-4. Manually verify against physical hardware (this cannot be automated):
-   - Enroll a fingerprint for a test employee via the enrollment flow.
-   - Punch in with the correct finger — verify success and that the
-     device LED/handle is released immediately after (no exclusive lock
-     held between punches; confirm by running the vendor's own
-     diagnostic tool concurrently and seeing it can still see the
-     device).
-   - Punch in with a different finger — verify rejection.
-   - Disconnect the network, punch in/out several times, reconnect —
-     verify the queued punches sync within 30 seconds and appear in the
-     backend's daily attendance view exactly once each (no duplicates).
+1. Confirm `FIRTextData` is genuinely base64 (see the comment in
+   `SecuGenFingerprintDevice.Capture()`) — capture a real fingerprint and
+   verify `Convert.FromBase64String` doesn't throw. If it does, this is
+   the SDK detail to fix first.
+2. Enroll a fingerprint for a test employee via the enrollment flow.
+3. Punch in with the correct finger — verify success and that the device
+   is released immediately after each capture (no exclusive lock held
+   between punches — confirm by running SecuGen's own diagnostic tool
+   concurrently and seeing it can still see the device).
+4. Punch in with a different finger — verify rejection.
+5. Disconnect the network, punch in/out several times, reconnect — verify
+   the queued punches sync within 30 seconds and appear in the backend's
+   daily attendance view exactly once each (no duplicates).
+
+A tenant configured for the `Zk4500` vendor still needs its own
+`IFingerprintDevice`/`IFingerprintVerifier` pair (ZKFinger SDK) once that
+vendor's SDK resources and hardware are available — same pattern as the
+SecuGen integration above, just a different vendor SDK reference and
+`Devices/` subfolder.

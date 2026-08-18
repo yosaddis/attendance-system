@@ -35,8 +35,18 @@ public static class HostComposition
         services.AddScoped<ITemplateCacheService, TemplateCacheService>();
         services.AddScoped<IPunchQueueService, PunchQueueService>();
         services.AddScoped<IPunchCaptureService, PunchCaptureService>();
+        // Debug builds use the hardware-free fakes so local development doesn't need a physical
+        // scanner attached. Release builds register the real SecuGen SDK classes — this is the
+        // registration StartupGuards.AssertNoFakeHardwareInRelease (see App.xaml.cs) checks at
+        // startup; keeping the split here (rather than only in the guard) means a genuine Release
+        // build never has fakes to detect in the first place.
+#if DEBUG
         services.AddSingleton<IFingerprintDevice, FakeFingerprintDevice>();
         services.AddSingleton<IFingerprintVerifier, FakeFingerprintVerifier>();
+#else
+        services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintDevice>();
+        services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintVerifier>();
+#endif
 
         // MainViewModel/MainWindow are Scoped (not Singleton) because they transitively depend on
         // the Scoped AgentDbContext (via IPunchCaptureService -> IEmployeeDirectoryService /
