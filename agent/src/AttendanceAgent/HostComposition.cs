@@ -43,6 +43,9 @@ public static class HostComposition
 #if DEBUG
         services.AddSingleton<IFingerprintDevice, FakeFingerprintDevice>();
         services.AddSingleton<IFingerprintVerifier, FakeFingerprintVerifier>();
+#elif DEVICE_VENDOR_ZK4500
+        services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.Zk.ZkFingerprintDevice>();
+        services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.Zk.ZkFingerprintVerifier>();
 #else
         services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintDevice>();
         services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintVerifier>();

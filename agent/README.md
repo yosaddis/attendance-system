@@ -23,6 +23,8 @@ or backend server is required.
 
 ## Real hardware bring-up (manual, not automated)
 
+### SecuGen
+
 SecuGen SDK integration is wired in (`SecuGenFingerprintDevice`,
 `SecuGenFingerprintVerifier`, Release builds only — Debug still uses the
 fakes for hardware-free local development). The following still requires
@@ -47,8 +49,32 @@ and cannot be automated:
    the queued punches sync within 30 seconds and appear in the backend's
    daily attendance view exactly once each (no duplicates).
 
-A tenant configured for the `Zk4500` vendor still needs its own
-`IFingerprintDevice`/`IFingerprintVerifier` pair (ZKFinger SDK) once that
-vendor's SDK resources and hardware are available — same pattern as the
-SecuGen integration above, just a different vendor SDK reference and
-`Devices/` subfolder.
+### ZK4500
+
+A tenant configured for the `Zk4500` vendor can use the ZKFinger SDK
+integration (`ZkFingerprintDevice`, `ZkFingerprintVerifier`, built via
+`dotnet build agent/AttendanceAgent.sln -c Release -p:DeviceVendor=Zk4500`).
+Debug builds always use the fakes regardless of `DeviceVendor`. The
+following still requires a physical ZK4500-class device and cannot be
+automated:
+
+1. **Raw byte-array templates.** Confirm that templates captured via
+   `AcquireFingerprint` are already raw bytes (not text-encoded) and
+   that they round-trip correctly through storage and matching without
+   encoding surprises (unlike SecuGen's `FIRTextData` encoding surprise).
+2. **AcquireFingerprint polling timeout.** The SDK's capture method is
+   poll-based and returns immediately with `ZKFP_ERR_CAPTURE` (-8) if no
+   finger is present. Confirm that the 15-second timeout (matching SecuGen's
+   tuned timeout) is sufficient for this device; adjust
+   `ZkFingerprintDevice.CaptureTimeout` if hardware bring-up shows
+   otherwise.
+3. **Rapid re-init/terminate cycling.** A single punch attempt calls
+   `zkfp2.Init()`/`Terminate()` twice in quick succession (once for
+   capture, once for verify — since the verifier runs after the device
+   is released). Confirm that the native library tolerates this cycle
+   without errors or hangs.
+4. **System-wide driver installation.** The ZKFinger SDK ships only a
+   managed wrapper (`libzkfpcsharp.dll`), with the native runtime
+   distributed separately via `setup.exe`. Confirm whether running
+   `setup.exe` is a required station provisioning step, or whether the
+   driver is already installed system-wide on target machines.

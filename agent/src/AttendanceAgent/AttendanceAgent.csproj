@@ -8,6 +8,8 @@
     <UseWPF>true</UseWPF>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
+    <DeviceVendor Condition="'$(DeviceVendor)'==''">SecuGen</DeviceVendor>
+    <DefineConstants>$(DefineConstants);DEVICE_VENDOR_$(DeviceVendor.ToUpperInvariant())</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +22,9 @@
   <ItemGroup>
     <Reference Include="SecuBSPMx.NET">
       <HintPath>Vendor\SecuGen\x64\SecuBSPMx.NET.dll</HintPath>
+    </Reference>
+    <Reference Include="libzkfpcsharp">
+      <HintPath>Vendor\Zk\x64\libzkfpcsharp.dll</HintPath>
     </Reference>
   </ItemGroup>
 
