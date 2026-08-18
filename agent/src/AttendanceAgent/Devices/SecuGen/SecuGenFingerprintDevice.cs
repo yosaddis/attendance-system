@@ -17,6 +17,18 @@ public class SecuGenFingerprintDevice : IFingerprintDevice
         var openErr = _secuBsp.OpenDevice();
         if (openErr != BSPError.ERROR_NONE)
             throw new InvalidOperationException($"Failed to open SecuGen device (OpenDevice: {openErr}).");
+
+        // CONFIRMED against real hardware: the SDK's default DefaultTimeout
+        // (10000ms) is too short for reliable capture in practice — a
+        // Capture(FIRPurpose.VERIFY) call failed twice with
+        // ERROR_CAPTURE_TIMEOUT even with a finger presented promptly.
+        // Bumping to 15000ms made capture succeed reliably. This is a soft,
+        // best-effort tuning — don't fail Acquire() if SetInitInfo itself
+        // returns a non-ERROR_NONE code.
+        var initInfo = new BSPInitInfo();
+        _secuBsp.GetInitInfo(initInfo);
+        initInfo.DefaultTimeout = 15000;
+        _secuBsp.SetInitInfo(initInfo);
     }
 
     public byte[] Capture()
@@ -31,13 +43,7 @@ public class SecuGenFingerprintDevice : IFingerprintDevice
         if (err != BSPError.ERROR_NONE)
             throw new InvalidOperationException($"Fingerprint capture failed (Capture: {err}).");
 
-        // ASSUMPTION, NOT YET VERIFIED AGAINST REAL HARDWARE: FIRTextData
-        // is the SDK's "text-encoded FIR" form (SecuAPI_FIR_FORM_TEXTENCODE),
-        // which for every SecuGen SDK generation observed in the vendor
-        // samples is base64. Verify this empirically during hardware
-        // bring-up (Step 6 below) — if FIRTextData turns out not to be
-        // valid base64, this line is the one to fix.
-        return Convert.FromBase64String(_secuBsp.FIRTextData);
+        return SecuGenFirTextEncoding.ToBytes(_secuBsp.FIRTextData);
     }
 
     public void Release()

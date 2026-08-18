@@ -29,10 +29,14 @@ fakes for hardware-free local development). The following still requires
 a physical SecuGen device (Hamster Plus or compatible FDx-family reader)
 and cannot be automated:
 
-1. Confirm `FIRTextData` is genuinely base64 (see the comment in
-   `SecuGenFingerprintDevice.Capture()`) — capture a real fingerprint and
-   verify `Convert.FromBase64String` doesn't throw. If it does, this is
-   the SDK detail to fix first.
+1. ~~Confirm `FIRTextData` is genuinely base64~~ — **VERIFIED WRONG** against a
+   real SecuGen USB SDU03P/FDU03 device: `FIRTextData` is not base64 (two
+   real captures both failed `Convert.FromBase64String`, one already a
+   multiple of 4 in length, ruling out a padding issue). Fixed: the device
+   now uses plain UTF8 byte encoding (`SecuGenFirTextEncoding`), confirmed
+   via a full real enroll -> capture -> VerifyMatch cycle producing
+   `IsMatched: true`. Also confirmed the SDK's default 10s capture timeout
+   is too tight in practice; bumped to 15s in `SecuGenFingerprintDevice.Acquire()`.
 2. Enroll a fingerprint for a test employee via the enrollment flow.
 3. Punch in with the correct finger — verify success and that the device
    is released immediately after each capture (no exclusive lock held

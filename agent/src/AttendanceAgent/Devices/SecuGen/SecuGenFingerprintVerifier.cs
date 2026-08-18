@@ -12,8 +12,11 @@ public class SecuGenFingerprintVerifier : IFingerprintVerifier
         // with SecuGenFingerprintDevice.
         using var secuBsp = new SecuBSPMx();
 
-        var capturedFir = Convert.ToBase64String(capturedTemplate);
-        var enrolledFir = Convert.ToBase64String(enrolledTemplate);
+        // Reverses SecuGenFingerprintDevice.Capture()'s UTF8 encoding — see
+        // SecuGenFirTextEncoding for the real-hardware verification this is
+        // based on.
+        var capturedFir = SecuGenFirTextEncoding.ToFirText(capturedTemplate);
+        var enrolledFir = SecuGenFirTextEncoding.ToFirText(enrolledTemplate);
 
         var err = secuBsp.VerifyMatch(capturedFir, enrolledFir);
         if (err != BSPError.ERROR_NONE)
