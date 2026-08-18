@@ -91,3 +91,23 @@ automated:
 9. Disconnect the network, punch in/out several times, reconnect — verify
    the queued punches sync within 30 seconds and appear in the backend's
    daily attendance view exactly once each (no duplicates).
+
+**Known risk, not yet mitigated:** `zkfp2.DBMatch` (called from
+`ZkFingerprintVerifier.Verify`) crashed the entire agent process with an
+uncatchable `AccessViolationException` when given 2048 bytes of random
+template data in place of a real template — confirmed against the real
+native library, not simulated. `.NET` cannot safely catch or recover from
+this; the whole kiosk process dies and needs an external restart. A
+length/null check before the call would NOT have prevented this specific
+crash (the random data was already a valid-length 2048-byte array), so no
+defensive check was added — a check that doesn't stop the actual failure
+mode would be false confidence. Realistic trigger: a stored template that
+is corrupted in transit/storage, or a mismatch between a tenant's
+configured `deviceVendor` and what a station actually captures with (see
+open item 4 above and the `DeviceVendor` MSBuild property — nothing
+today cross-checks that a station's compiled vendor matches the
+templates its employees actually enrolled with). Properly closing this
+gap needs either vendor-documented template format validation (not
+available in this SDK's docs) or moving the match call out-of-process so
+a crash there can't take the whole kiosk down — both are bigger than this
+integration task's scope and are tracked as follow-up work.
