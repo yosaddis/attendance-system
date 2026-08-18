@@ -70,4 +70,32 @@ public class HostCompositionTests
 
         Assert.Null(failure);
     }
+
+    /// <summary>
+    /// The fingerprint vendor is a build-time choice (the DeviceVendor MSBuild property), so a
+    /// deployed AttendanceAgent.exe gives no runtime indication of which SDK it will talk to.
+    /// App.xaml.cs logs <see cref="HostComposition.CompiledDeviceVendor"/> once at startup so that
+    /// question is answerable from a running station's own log; this asserts the value is actually
+    /// populated and reports the build kind, rather than being an empty or placeholder string.
+    ///
+    /// The test assembly is built Debug in the normal `dotnet test` run, which is the configuration
+    /// that registers the fakes — so that is the branch asserted here. The Release branches are
+    /// covered by the vendor-registration tests plus the build-level DeviceVendor validation in
+    /// AttendanceAgent.csproj.
+    /// </summary>
+    [Fact]
+    public void CompiledDeviceVendor_IdentifiesTheVendorAndBuildKind()
+    {
+        var vendor = HostComposition.CompiledDeviceVendor;
+
+        Assert.False(string.IsNullOrWhiteSpace(vendor));
+#if DEBUG
+        Assert.Contains("Debug build", vendor);
+        Assert.Contains("Fake", vendor);
+#elif DEVICE_VENDOR_ZK4500
+        Assert.Contains("Zk4500", vendor);
+#else
+        Assert.Contains("SecuGen", vendor);
+#endif
+    }
 }

@@ -78,3 +78,16 @@ automated:
    distributed separately via `setup.exe`. Confirm whether running
    `setup.exe` is a required station provisioning step, or whether the
    driver is already installed system-wide on target machines.
+5. Enroll a fingerprint for a test employee via the enrollment flow.
+6. Punch in with the correct finger — verify success.
+7. Punch in with a **different** finger — verify rejection. This is the
+   one gate that catches a broken match decision, in a path where a
+   false accept means one employee can punch in as another.
+8. ~~Verify the device is not exclusively locked between punches~~ —
+   **CONFIRMED not locked**: six consecutive `zkfp2.OpenDevice(0)` calls
+   against the attached ZK4500 (VID_1B55&PID_0840) all returned distinct
+   non-null handles, so a concurrent reader (e.g. ZKTeco's own
+   diagnostic tool) can still see the device between punches.
+9. Disconnect the network, punch in/out several times, reconnect — verify
+   the queued punches sync within 30 seconds and appear in the backend's
+   daily attendance view exactly once each (no duplicates).

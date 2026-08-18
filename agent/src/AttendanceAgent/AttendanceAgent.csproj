@@ -12,6 +12,26 @@
     <DefineConstants>$(DefineConstants);DEVICE_VENDOR_$(DeviceVendor.ToUpperInvariant())</DefineConstants>
   </PropertyGroup>
 
+  <!--
+    DeviceVendor selects which vendor SDK's IFingerprintDevice/IFingerprintVerifier
+    get registered in Release builds (see HostComposition.ConfigureServices, which
+    branches on the DEVICE_VENDOR_* constant defined above).
+
+    Without this check, a typo built clean: `-p:DeviceVendor=Zk4000` produced a
+    DEVICE_VENDOR_ZK4000 constant that nothing tests for, so the #else branch won
+    and the binary silently shipped with SecuGen registered — 0 warnings, 0 errors,
+    nothing in the build log to notice. A station provisioned that way would look
+    fine in CI and then fail every punch on ZK4500 hardware with a SecuGen error
+    message. Fail the build instead.
+
+    BeforeTargets="CoreCompile" so it fires on a real build (not merely on restore),
+    before any compilation work happens.
+  -->
+  <Target Name="ValidateDeviceVendor" BeforeTargets="CoreCompile">
+    <Error Condition="'$(DeviceVendor)' != 'SecuGen' AND '$(DeviceVendor)' != 'Zk4500'"
+           Text="DeviceVendor must be 'SecuGen' or 'Zk4500', got '$(DeviceVendor)'." />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.30" />

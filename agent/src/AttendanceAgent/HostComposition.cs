@@ -17,6 +17,25 @@ namespace AttendanceAgent;
 /// </summary>
 public static class HostComposition
 {
+    /// <summary>
+    /// Human-readable description of which fingerprint vendor's implementations this particular
+    /// binary was compiled against, derived from the same compile-time symbols
+    /// <see cref="ConfigureServices"/> branches on below.
+    ///
+    /// The vendor is a build-time choice (the DeviceVendor MSBuild property), not a runtime setting,
+    /// so a deployed AttendanceAgent.exe otherwise gives no indication of which SDK it will talk to —
+    /// diagnosing a misprovisioned station meant rebuilding to find out. App.xaml.cs logs this once
+    /// at startup so it is answerable from the station's own log.
+    /// </summary>
+    public static string CompiledDeviceVendor =>
+#if DEBUG
+        "Fake (Debug build: hardware-free FakeFingerprintDevice/FakeFingerprintVerifier; DeviceVendor is ignored)";
+#elif DEVICE_VENDOR_ZK4500
+        "Zk4500 (Release build: ZkFingerprintDevice/ZkFingerprintVerifier)";
+#else
+        "SecuGen (Release build: SecuGenFingerprintDevice/SecuGenFingerprintVerifier)";
+#endif
+
     public static IHostBuilder CreateHostBuilder(string dbPath, TimeSpan? syncInterval = null) =>
         Host.CreateDefaultBuilder()
             .ConfigureServices(services => ConfigureServices(services, dbPath, syncInterval));

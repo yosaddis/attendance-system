@@ -48,6 +48,14 @@ public partial class App : Application
 
             _host = HostComposition.CreateHostBuilder(dbPath).Build();
 
+            // The fingerprint vendor is compiled in (the DeviceVendor MSBuild property), not
+            // configured at runtime, so without this line there is no way to tell which SDK a
+            // deployed AttendanceAgent.exe will talk to short of rebuilding it. Logging it once here
+            // makes a misprovisioned station diagnosable from its own log.
+            _host.Services.GetRequiredService<ILogger<App>>().LogInformation(
+                "Fingerprint vendor compiled into this build: {DeviceVendor}",
+                HostComposition.CompiledDeviceVendor);
+
             // Fails fast (Release builds only) if the fake, non-hardware fingerprint device/verifier
             // are still the registered implementations — see StartupGuards for why shipping them
             // unmodified would be a silent authentication bypass.
