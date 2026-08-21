@@ -1,4 +1,5 @@
 using AttendanceApi.Auth;
+using AttendanceApi.Dtos;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,5 +15,6 @@ public class HealthController : ControllerBase
 
     [HttpGet("station")]
     [Authorize(AuthenticationSchemes = StationKeySchemes.Name)]
-    public IActionResult GetForStation() => Ok(new { status = "ok", stationId = User.StationId() });
+    public ActionResult<StationHealthResponse> GetForStation() =>
+        Ok(new StationHealthResponse("ok", User.StationId()!.Value, User.TenantId()!.Value));
 }
