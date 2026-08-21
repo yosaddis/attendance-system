@@ -31,7 +31,7 @@ public class BackendApiClientTests
                 name = "Jane Doe",
             }),
         });
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         var result = await client.LookupEmployeeAsync("E001");
 
@@ -44,7 +44,7 @@ public class BackendApiClientTests
     {
         using var db = DbWithSettings();
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         var result = await client.LookupEmployeeAsync("NOPE");
 
@@ -64,7 +64,7 @@ public class BackendApiClientTests
                 enrolledAt = DateTimeOffset.UtcNow,
             }),
         });
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         var result = await client.FetchTemplateAsync(Guid.NewGuid());
 
@@ -79,7 +79,7 @@ public class BackendApiClientTests
         {
             Content = JsonContent.Create(new { acceptedIds = new List<Guid>() }),
         });
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
         var punch = new QueuedPunch { Id = Guid.NewGuid(), EmployeeId = Guid.NewGuid(), PunchType = "In", Timestamp = DateTimeOffset.UtcNow };
 
         var result = await client.SubmitPunchesAsync(new List<QueuedPunch> { punch });
@@ -97,7 +97,7 @@ public class BackendApiClientTests
         // forever.
         using var db = DbWithSettings();
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
         var punch = new QueuedPunch { Id = Guid.NewGuid(), EmployeeId = Guid.NewGuid(), PunchType = "In", Timestamp = DateTimeOffset.UtcNow };
 
         var result = await client.SubmitPunchesAsync(new List<QueuedPunch> { punch });
@@ -110,7 +110,7 @@ public class BackendApiClientTests
     {
         using var db = DbWithSettings();
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
         var punch = new QueuedPunch { Id = Guid.NewGuid(), EmployeeId = Guid.NewGuid(), PunchType = "In", Timestamp = DateTimeOffset.UtcNow };
 
         var result = await client.SubmitPunchesAsync(new List<QueuedPunch> { punch });
@@ -133,7 +133,7 @@ public class BackendApiClientTests
                 enrolledAt = DateTimeOffset.UtcNow,
             }),
         });
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         await client.FetchTemplateAsync(Guid.NewGuid());
 
@@ -145,7 +145,7 @@ public class BackendApiClientTests
     {
         using var db = DbWithSettings();
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
         var punchId = Guid.NewGuid();
         var employeeId = Guid.NewGuid();
         var timestamp = DateTimeOffset.Parse("2026-08-16T12:34:56Z");
@@ -176,7 +176,7 @@ public class BackendApiClientTests
         {
             Content = JsonContent.Create(new { token = "abc", role = "TenantAdmin", tenantId = Guid.NewGuid() }),
         });
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         var result = await client.LoginAsync("admin@acme.test", "correct-horse-battery");
 
@@ -190,7 +190,7 @@ public class BackendApiClientTests
     {
         using var db = DbWithSettings();
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         var result = await client.LoginAsync("admin@acme.test", "wrong-password");
 
@@ -205,7 +205,7 @@ public class BackendApiClientTests
         {
             Content = JsonContent.Create(new { token = "abc", role = "TenantAdmin" }),
         });
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         await client.LoginAsync("admin@acme.test", "correct-horse-battery");
 
@@ -220,7 +220,7 @@ public class BackendApiClientTests
     {
         using var db = DbWithSettings();
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         var result = await client.EnrollTemplateAsync(Guid.NewGuid(), new byte[] { 1, 2, 3 });
 
@@ -233,7 +233,7 @@ public class BackendApiClientTests
     {
         using var db = DbWithSettings();
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
         var employeeId = Guid.NewGuid();
 
         await client.EnrollTemplateAsync(employeeId, new byte[] { 1, 2, 3 });
@@ -249,7 +249,7 @@ public class BackendApiClientTests
     {
         using var db = DbWithSettings();
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         var result = await client.EnrollTemplateAsync(Guid.NewGuid(), new byte[] { 1, 2, 3 });
 
@@ -265,7 +265,7 @@ public class BackendApiClientTests
         {
             Content = JsonContent.Create(new { status = "ok", stationId = Guid.NewGuid(), tenantId }),
         });
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         var result = await client.GetStationTenantIdAsync();
 
@@ -278,7 +278,43 @@ public class BackendApiClientTests
     {
         using var db = DbWithSettings();
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
-        var client = new BackendApiClient(new HttpClient(handler), db);
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
+
+        var result = await client.GetStationTenantIdAsync();
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task LoginAsync_NetworkFailure_ReturnsNull_DoesNotThrow()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => throw new HttpRequestException("Connection refused"));
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
+
+        var result = await client.LoginAsync("admin@acme.test", "correct-horse-battery");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task EnrollTemplateAsync_NetworkFailure_ReturnsFalse_DoesNotThrow()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => throw new HttpRequestException("Connection refused"));
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
+
+        var result = await client.EnrollTemplateAsync(Guid.NewGuid(), new byte[] { 1, 2, 3 });
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task GetStationTenantIdAsync_NetworkFailure_ReturnsNull_DoesNotThrow()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => throw new HttpRequestException("Connection refused"));
+        var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
 
         var result = await client.GetStationTenantIdAsync();
 

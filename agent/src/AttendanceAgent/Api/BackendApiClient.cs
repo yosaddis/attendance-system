@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AttendanceAgent.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace AttendanceAgent.Api;
 
@@ -13,11 +14,13 @@ public class BackendApiClient : IBackendApiClient
 
     private readonly HttpClient _http;
     private readonly AgentDbContext _db;
+    private readonly ILogger<BackendApiClient> _logger;
 
-    public BackendApiClient(HttpClient http, AgentDbContext db)
+    public BackendApiClient(HttpClient http, AgentDbContext db, ILogger<BackendApiClient> logger)
     {
         _http = http;
         _db = db;
+        _logger = logger;
     }
 
     private async Task<HttpRequestMessage> BuildRequestAsync(HttpMethod method, string path, CancellationToken ct)
@@ -72,32 +75,62 @@ public class BackendApiClient : IBackendApiClient
         // X-Station-Key, but /api/auth/login is the same public login endpoint the web portal
         // uses, not a station-scoped call. This is only ever used as a one-time admin-gate
         // check; the resulting JWT is not read from the response or stored anywhere.
-        var settings = await _db.Settings.SingleAsync(ct);
-        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(new Uri(settings.BackendBaseUrl), "/api/auth/login"))
+        //
+        // Catches network-level failures here (not just non-success HTTP responses) because the
+        // design spec's documented contract is "returns null on any non-success response,
+        // regardless of whether it was a 401 or a network failure" — MainViewModel.AdminLoginAsync
+        // has no try/catch of its own, so an uncaught exception here previously crashed to a
+        // modal MessageBox while leaving the admin-gated Enroll panel unlocked behind it.
+        try
         {
-            Content = JsonContent.Create(new LoginRequestPayload(email, password), options: JsonOptions),
-        };
-        var response = await _http.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode) return null;
-        return await response.Content.ReadFromJsonAsync<LoginResult>(JsonOptions, ct);
+            var settings = await _db.Settings.SingleAsync(ct);
+            var request = new HttpRequestMessage(HttpMethod.Post, new Uri(new Uri(settings.BackendBaseUrl), "/api/auth/login"))
+            {
+                Content = JsonContent.Create(new LoginRequestPayload(email, password), options: JsonOptions),
+            };
+            var response = await _http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode) return null;
+            return await response.Content.ReadFromJsonAsync<LoginResult>(JsonOptions, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Admin login failed against the backend (network/transport failure).");
+            return null;
+        }
     }
 
     public async Task<bool> EnrollTemplateAsync(Guid employeeId, byte[] templateData, CancellationToken ct = default)
     {
-        var request = await BuildRequestAsync(HttpMethod.Post, "/api/templates", ct);
-        request.Content = JsonContent.Create(
-            new EnrollTemplateRequestPayload(employeeId, Convert.ToBase64String(templateData)),
-            options: JsonOptions);
-        var response = await _http.SendAsync(request, ct);
-        return response.IsSuccessStatusCode;
+        try
+        {
+            var request = await BuildRequestAsync(HttpMethod.Post, "/api/templates", ct);
+            request.Content = JsonContent.Create(
+                new EnrollTemplateRequestPayload(employeeId, Convert.ToBase64String(templateData)),
+                options: JsonOptions);
+            var response = await _http.SendAsync(request, ct);
+            return response.IsSuccessStatusCode;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Template upload for employee '{EmployeeId}' failed against the backend (network/transport failure).", employeeId);
+            return false;
+        }
     }
 
     public async Task<Guid?> GetStationTenantIdAsync(CancellationToken ct = default)
     {
-        var request = await BuildRequestAsync(HttpMethod.Get, "/api/health/station", ct);
-        var response = await _http.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode) return null;
-        var result = await response.Content.ReadFromJsonAsync<StationHealthResponsePayload>(JsonOptions, ct);
-        return result?.TenantId;
+        try
+        {
+            var request = await BuildRequestAsync(HttpMethod.Get, "/api/health/station", ct);
+            var response = await _http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode) return null;
+            var result = await response.Content.ReadFromJsonAsync<StationHealthResponsePayload>(JsonOptions, ct);
+            return result?.TenantId;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Station tenant lookup failed against the backend (network/transport failure).");
+            return null;
+        }
     }
 }

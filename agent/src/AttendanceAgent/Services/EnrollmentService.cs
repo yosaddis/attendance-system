@@ -55,13 +55,23 @@ public class EnrollmentService : IEnrollmentService
                 rawCaptures.Add(capture);
             }
         }
+        catch (OperationCanceledException)
+        {
+            return new EnrollmentResult(false, "Enrollment cancelled.");
+        }
         catch (Exception ex)
         {
             return new EnrollmentResult(false, $"Fingerprint capture failed: {ex.Message}");
         }
         finally
         {
-            await Task.Run(() => device.Release(), ct);
+            // Deliberately CancellationToken.None, NOT ct: this cleanup must run even when ct is
+            // already cancelled. Task.Run(delegate, ct) with an already-cancelled token returns a
+            // cancelled Task WITHOUT EVER INVOKING the delegate — so passing ct here (as this
+            // method originally did) meant a cancelled enrollment could skip calling Release()
+            // entirely, leaving the device open with the handle still held. Cleanup is not
+            // cancellable.
+            await Task.Run(() => device.Release(), CancellationToken.None);
         }
 
         byte[] merged;

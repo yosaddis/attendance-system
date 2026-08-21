@@ -34,6 +34,18 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private Visibility enrollPanelVisibility = Visibility.Collapsed;
 
+    // A punch and an enrollment must never run concurrently — both drive the same Singleton
+    // IFingerprintDevice instance (see HostComposition.ConfigureServices), which holds mutable
+    // state (e.g. ZkFingerprintDevice._devHandle, or SecuGen's single shared FIRTextData
+    // property). Proven live during the whole-branch review: a punch during an in-flight
+    // enrollment caused concurrent Acquire/Release calls on the same device instance. Both
+    // PunchCommand and StartEnrollmentCommand gate on CanUseDevice, and
+    // NotifyCanExecuteChangedFor re-evaluates both commands' CanExecute whenever this flips.
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PunchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartEnrollmentCommand))]
+    private bool isDeviceBusy;
+
     public MainViewModel(
         IPunchCaptureService captureService,
         IEnrollmentService enrollmentService,
@@ -50,12 +62,22 @@ public partial class MainViewModel : ObservableObject
         _prompt = prompt;
     }
 
-    [RelayCommand]
+    private bool CanUseDevice() => !IsDeviceBusy;
+
+    [RelayCommand(CanExecute = nameof(CanUseDevice))]
     private async Task PunchAsync(string punchType)
     {
-        var result = await _captureService.CapturePunchAsync(EmployeeCode, punchType, _device);
-        StatusMessage = result.Message;
-        if (result.Success) EmployeeCode = "";
+        IsDeviceBusy = true;
+        try
+        {
+            var result = await _captureService.CapturePunchAsync(EmployeeCode, punchType, _device);
+            StatusMessage = result.Message;
+            if (result.Success) EmployeeCode = "";
+        }
+        finally
+        {
+            IsDeviceBusy = false;
+        }
     }
 
     [RelayCommand]
@@ -87,28 +109,36 @@ public partial class MainViewModel : ObservableObject
         EnrollPanelVisibility = Visibility.Visible;
     }
 
-    [RelayCommand]
-    private async Task StartEnrollmentAsync()
+    // IncludeCancelCommand generates a companion StartEnrollmentCancelCommand, automatically
+    // enabled only while this command is actually running (CommunityToolkit.Mvvm tracks this via
+    // the command's IsRunning state) — exactly the semantics a Cancel button needs, and strictly
+    // better than the old hand-written CancelEnrollmentCommand, which could be invoked at any
+    // time and never actually stopped the running enrollment (no CancellationToken was wired to
+    // it at all). The panel reset below runs once EnrollAsync itself returns — whether it
+    // completed, failed, or was cancelled — never eagerly on the button click, so the UI can't
+    // flip back to the punch panel while the enrollment still owns the device.
+    [RelayCommand(CanExecute = nameof(CanUseDevice), IncludeCancelCommand = true)]
+    private async Task StartEnrollmentAsync(CancellationToken ct)
     {
-        var result = await _enrollmentService.EnrollAsync(
-            EnrollEmployeeCode,
-            _device,
-            _enroller,
-            (i, total) => EnrollProgressMessage = $"Place your finger ({i} of {total})");
+        IsDeviceBusy = true;
+        try
+        {
+            var result = await _enrollmentService.EnrollAsync(
+                EnrollEmployeeCode,
+                _device,
+                _enroller,
+                (i, total) => EnrollProgressMessage = $"Place your finger ({i} of {total})",
+                ct);
 
-        StatusMessage = result.Message;
-        EnrollEmployeeCode = "";
-        EnrollProgressMessage = "";
-        PunchPanelVisibility = Visibility.Visible;
-        EnrollPanelVisibility = Visibility.Collapsed;
-    }
-
-    [RelayCommand]
-    private void CancelEnrollment()
-    {
-        EnrollEmployeeCode = "";
-        EnrollProgressMessage = "";
-        PunchPanelVisibility = Visibility.Visible;
-        EnrollPanelVisibility = Visibility.Collapsed;
+            StatusMessage = result.Message;
+        }
+        finally
+        {
+            EnrollEmployeeCode = "";
+            EnrollProgressMessage = "";
+            PunchPanelVisibility = Visibility.Visible;
+            EnrollPanelVisibility = Visibility.Collapsed;
+            IsDeviceBusy = false;
+        }
     }
 }

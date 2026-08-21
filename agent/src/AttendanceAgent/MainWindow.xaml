@@ -20,7 +20,7 @@
             <TextBox Text="{Binding EnrollEmployeeCode, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" />
             <WrapPanel>
                 <Button Content="Start Enrollment" Command="{Binding StartEnrollmentCommand}" Margin="0,0,8,0" />
-                <Button Content="Cancel" Command="{Binding CancelEnrollmentCommand}" />
+                <Button Content="Cancel" Command="{Binding StartEnrollmentCancelCommand}" />
             </WrapPanel>
             <TextBlock Text="{Binding EnrollProgressMessage}" Margin="0,16,0,0" TextWrapping="Wrap" />
             <TextBlock Text="{Binding StatusMessage}" Margin="0,8,0,0" TextWrapping="Wrap" />

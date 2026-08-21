@@ -24,6 +24,41 @@ public class SequencedFakeFingerprintDevice : IFingerprintDevice
     public void Release() => IsAcquired = false;
 }
 
+/// <summary>
+/// Cancels the enrollment's own CancellationTokenSource from INSIDE the first
+/// CaptureForEnrollment() call, so the capture loop is genuinely mid-flight (device acquired) when
+/// the token trips — the only state in which the finally-block Release() bug is observable.
+/// </summary>
+public class SelfCancellingFakeFingerprintDevice : IFingerprintDevice
+{
+    private readonly CancellationTokenSource _cts;
+    public bool IsAcquired { get; private set; }
+    public List<string> CallLog { get; } = new();
+
+    public SelfCancellingFakeFingerprintDevice(CancellationTokenSource cts) => _cts = cts;
+
+    public void Acquire()
+    {
+        IsAcquired = true;
+        CallLog.Add("Acquire");
+    }
+
+    public byte[] Capture() => throw new NotSupportedException("Not used by enrollment.");
+
+    public byte[] CaptureForEnrollment()
+    {
+        CallLog.Add("CaptureForEnrollment");
+        _cts.Cancel();
+        return new byte[] { 1 };
+    }
+
+    public void Release()
+    {
+        IsAcquired = false;
+        CallLog.Add("Release");
+    }
+}
+
 public class EnrollmentServiceTests
 {
     [Fact]
@@ -119,5 +154,35 @@ public class EnrollmentServiceTests
         var result = await service.EnrollAsync("E002", device, new FakeFingerprintEnroller(), (_, _) => { });
 
         Assert.False(result.Success);
+    }
+
+    [Fact]
+    public async Task EnrollAsync_ReleaseRunsEvenWhenCancellationTokenIsAlreadyCancelled()
+    {
+        // The bug this proves is fixed: `finally { await Task.Run(() => device.Release(), ct); }`
+        // using the SAME ct that just cancelled the capture loop means Task.Run would skip invoking
+        // the delegate entirely for an already-cancelled token — Release() silently never runs.
+        //
+        // Cancellation is triggered from inside the FIRST CaptureForEnrollment() (rather than
+        // pre-cancelling the token before the call) so the device is genuinely acquired when the
+        // token trips: a token cancelled before EnrollAsync is even entered never reaches the
+        // Acquire()/Release() pair at all, so it cannot observe this bug.
+        using var db = TestDb.CreateInMemory();
+        var employeeId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate") };
+        var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+        var service = new EnrollmentService(employees, api);
+        using var cts = new CancellationTokenSource();
+        var device = new SelfCancellingFakeFingerprintDevice(cts);
+
+        var result = await service.EnrollAsync("E002", device, new FakeFingerprintEnroller(), (_, _) => { }, cts.Token);
+
+        Assert.False(result.Success);
+        Assert.Equal("Enrollment cancelled.", result.Message);
+        Assert.False(device.IsAcquired);
+        Assert.Contains("Release", device.CallLog);
+
+        // A cancelled enrollment must not upload anything — the whole point of Cancel.
+        Assert.Null(api.LastEnrolledTemplate);
     }
 }

@@ -147,15 +147,40 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public void CancelEnrollment_ReturnsToPunchPanel()
+    public async Task PunchAndEnrollment_CannotRunConcurrently_OnTheSharedDevice()
     {
-        var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        var pending = new TaskCompletionSource<EnrollmentResult>();
+        var enrollment = new FakeEnrollmentService { PendingCompletion = pending };
+        var vm = new MainViewModel(new FakeCaptureService(), enrollment, new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
         vm.EnrollEmployeeCode = "E002";
-        vm.EnrollPanelVisibility = Visibility.Visible;
-        vm.PunchPanelVisibility = Visibility.Collapsed;
 
-        vm.CancelEnrollmentCommand.Execute(null);
+        var enrollTask = vm.StartEnrollmentCommand.ExecuteAsync(null);
 
+        Assert.False(vm.PunchCommand.CanExecute("In"));
+        Assert.False(vm.StartEnrollmentCommand.CanExecute(null));
+
+        pending.SetResult(new EnrollmentResult(true, "Fingerprint enrolled for Yoseph Addisu Abate."));
+        await enrollTask;
+
+        Assert.True(vm.PunchCommand.CanExecute("In"));
+        Assert.True(vm.StartEnrollmentCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task CancelEnrollment_ActuallyCancelsTheRunningEnrollment_AndReturnsToPunchPanel()
+    {
+        var pending = new TaskCompletionSource<EnrollmentResult>();
+        var enrollment = new FakeEnrollmentService { PendingCompletion = pending };
+        var vm = new MainViewModel(new FakeCaptureService(), enrollment, new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        vm.EnrollEmployeeCode = "E002";
+
+        var enrollTask = vm.StartEnrollmentCommand.ExecuteAsync(null);
+
+        Assert.True(vm.StartEnrollmentCancelCommand.CanExecute(null));
+        vm.StartEnrollmentCancelCommand.Execute(null);
+        await enrollTask;
+
+        Assert.True(enrollment.LastCancellationToken!.Value.IsCancellationRequested);
         Assert.Equal("", vm.EnrollEmployeeCode);
         Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
         Assert.Equal(Visibility.Collapsed, vm.EnrollPanelVisibility);
