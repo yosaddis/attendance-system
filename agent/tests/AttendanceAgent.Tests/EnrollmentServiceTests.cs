@@ -85,6 +85,13 @@ public class EnrollmentServiceTests
         Assert.Equal(new byte[] { 3 }, enroller.LastCaptures![2]);
         Assert.Equal(employeeId, api.LastEnrolledTemplate!.Value.EmployeeId);
         Assert.Equal(new byte[] { 9, 9, 9 }, api.LastEnrolledTemplate!.Value.TemplateData);
+
+        // Without this, a just-enrolled employee can't punch until one successful ONLINE punch
+        // separately populates the cache — confirm EnrollAsync itself already did it, not just
+        // that the upload succeeded.
+        var cached = await db.CachedTemplates.FindAsync(employeeId);
+        Assert.NotNull(cached);
+        Assert.Equal(new byte[] { 9, 9, 9 }, cached!.TemplateData);
     }
 
     [Fact]

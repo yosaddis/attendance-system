@@ -108,6 +108,10 @@ public class EnrollmentService : IEnrollmentService
         {
             uploaded = await _api.EnrollTemplateAsync(employee.EmployeeId, merged, ct);
         }
+        catch (OperationCanceledException)
+        {
+            return new EnrollmentResult(false, "Enrollment cancelled.");
+        }
         catch (Exception ex)
         {
             return new EnrollmentResult(false, $"Failed to upload the enrolled template to the backend: {ex.Message}");
