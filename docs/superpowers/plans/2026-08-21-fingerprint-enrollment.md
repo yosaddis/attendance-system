@@ -4,7 +4,9 @@
 
 **Goal:** Add a TenantAdmin-gated fingerprint enrollment flow to the desktop agent so a real employee template can be captured and uploaded without a direct API call — closing the last gap identified in the design spec (no product surface for enrollment existed anywhere).
 
-**Architecture:** A new admin-gated "Enroll" panel on the existing punch window. Three raw enrollment-purpose captures are taken through a new `IFingerprintDevice.CaptureForEnrollment()` method, then folded into one final template through a new, per-vendor `IFingerprintEnroller.MergeCaptures()` — ZK4500 batches all three into one `DBMerge` call, SecuGen folds them incrementally via repeated `CreateTemplate` calls (these are genuinely different vendor operations, not the same call reused). The merged template uploads via the station's existing `X-Station-Key` auth to the already-built `POST /api/templates`. No backend changes.
+**Architecture:** A new admin-gated "Enroll" panel on the existing punch window. Three raw enrollment-purpose captures are taken through a new `IFingerprintDevice.CaptureForEnrollment()` method, then folded into one final template through a new, per-vendor `IFingerprintEnroller.MergeCaptures()` — ZK4500 batches all three into one `DBMerge` call, SecuGen folds them incrementally via repeated `CreateTemplate` calls (these are genuinely different vendor operations, not the same call reused). The merged template uploads via the station's existing `X-Station-Key` auth to the already-built `POST /api/templates`.
+
+**Amendment after Tasks 1-5 (whole-branch review):** Tasks 1-5 shipped with "No backend changes" as a hard constraint. A whole-branch review found that the admin gate checks `Role == "TenantAdmin"` only, not tenant identity — any tenant's TenantAdmin can unlock enrollment on any OTHER tenant's station (the upload itself stays correctly scoped to the station's own tenant via station-key auth, so cross-tenant employee data can't actually be corrupted, but the login gate itself doesn't enforce "this admin belongs to this station's company"). The user decided this must be fixed, which requires a small, additive backend change (Task 6) — the "No backend changes" constraint is explicitly amended for Tasks 6-7 only; it still holds for Tasks 1-5's own scope retroactively (they didn't need one).
 
 **Tech Stack:** .NET 8 WPF desktop agent, CommunityToolkit.Mvvm, xUnit, existing ZKFinger/SecuGen vendor SDKs.
 
@@ -1341,6 +1343,338 @@ Find the existing numbered SecuGen bring-up list and add:
 ```bash
 git add agent/src/AttendanceAgent/Devices/SecuGen agent/src/AttendanceAgent/HostComposition.cs agent/tests/AttendanceAgent.Tests/SecuGenFingerprintDeviceRegistrationTests.cs agent/README.md
 git commit -m "feat: implement real SecuGen enrollment capture and template merge"
+```
+
+---
+
+### Task 6: Backend — expose the station's own tenant on the health endpoint
+
+**Files:**
+- Create: `backend/src/AttendanceApi/Dtos/HealthDtos.cs`
+- Modify: `backend/src/AttendanceApi/Controllers/HealthController.cs`
+- Test: `backend/tests/AttendanceApi.Tests/HealthControllerTests.cs`
+
+**Interfaces:**
+- Consumes: `StationKeySchemes.Name` auth scheme (existing), `ClaimsPrincipalExtensions.TenantId()`/`StationId()` (existing).
+- Produces: `GET /api/health/station` now returns a typed `StationHealthResponse(string Status, Guid StationId, Guid TenantId)` instead of an anonymous object — Task 7 consumes the `TenantId` field by this exact name.
+
+- [ ] **Step 1: Write the failing test**
+
+```csharp
+// backend/tests/AttendanceApi.Tests/HealthControllerTests.cs — new file
+using System.Net;
+using System.Net.Http.Json;
+using AttendanceApi.Data;
+using AttendanceApi.Dtos;
+using AttendanceApi.Entities;
+using AttendanceApi.Services;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace AttendanceApi.Tests;
+
+public class HealthControllerTests : IClassFixture<ApiFactory>
+{
+    private readonly ApiFactory _factory;
+
+    public HealthControllerTests(ApiFactory factory)
+    {
+        _factory = factory;
+    }
+
+    [Fact]
+    public async Task GetForStation_ReturnsStationIdAndTenantId()
+    {
+        Guid tenantId, stationId;
+        string stationKey;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = new Tenant { Name = "Acme Foods", DeviceVendor = DeviceVendor.Zk4500 };
+            var (plaintextKey, hash) = StationKeyGenerator.Generate();
+            var station = new Station { TenantId = tenant.Id, Name = "Front Desk", DeviceVendor = DeviceVendor.Zk4500, ApiKeyHash = hash };
+            db.Tenants.Add(tenant);
+            db.Stations.Add(station);
+            db.SaveChanges();
+            tenantId = tenant.Id;
+            stationId = station.Id;
+            stationKey = plaintextKey;
+        }
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Station-Key", stationKey);
+
+        var response = await client.GetAsync("/api/health/station");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<StationHealthResponse>();
+        Assert.Equal(tenantId, body!.TenantId);
+        Assert.Equal(stationId, body.StationId);
+        Assert.Equal("ok", body.Status);
+    }
+
+    [Fact]
+    public async Task GetForStation_WithoutStationKey_ReturnsUnauthorized()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/api/health/station");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+}
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `dotnet test backend/tests/AttendanceApi.Tests --filter HealthControllerTests`
+Expected: `GetForStation_ReturnsStationIdAndTenantId` fails — `ReadFromJsonAsync<StationHealthResponse>` either fails to find the type (doesn't exist yet) or deserializes with `TenantId`/`StationId` as `Guid.Empty` (the anonymous object's `stationId` property is currently typed as `Guid?`, not a matching shape).
+
+- [ ] **Step 3: Add the DTO and update the controller**
+
+```csharp
+// backend/src/AttendanceApi/Dtos/HealthDtos.cs — new file
+namespace AttendanceApi.Dtos;
+
+public record StationHealthResponse(string Status, Guid StationId, Guid TenantId);
+```
+
+```csharp
+// backend/src/AttendanceApi/Controllers/HealthController.cs — full file
+using AttendanceApi.Auth;
+using AttendanceApi.Dtos;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace AttendanceApi.Controllers;
+
+[ApiController]
+[Route("api/health")]
+public class HealthController : ControllerBase
+{
+    [HttpGet]
+    [AllowAnonymous]
+    public IActionResult Get() => Ok(new { status = "ok" });
+
+    [HttpGet("station")]
+    [Authorize(AuthenticationSchemes = StationKeySchemes.Name)]
+    public ActionResult<StationHealthResponse> GetForStation() =>
+        Ok(new StationHealthResponse("ok", User.StationId()!.Value, User.TenantId()!.Value));
+}
+```
+
+`User.StationId()!.Value`/`User.TenantId()!.Value` are safe to force-unwrap here: the `[Authorize(AuthenticationSchemes = StationKeySchemes.Name)]` guarantees `StationKeyAuthHandler` already populated both claims (see `Auth/StationKeyAuthHandler.cs`) before this action can run.
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `dotnet test backend/tests/AttendanceApi.Tests`
+Expected: all tests pass, including the 2 new `HealthControllerTests`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add backend/src/AttendanceApi/Dtos/HealthDtos.cs backend/src/AttendanceApi/Controllers/HealthController.cs backend/tests/AttendanceApi.Tests/HealthControllerTests.cs
+git commit -m "feat: expose the station's own tenant id on the station health endpoint"
+```
+
+---
+
+### Task 7: Agent — reject admin logins from a different tenant than the station's own
+
+**Files:**
+- Modify: `agent/src/AttendanceAgent/Api/ApiDtos.cs`
+- Modify: `agent/src/AttendanceAgent/Api/IBackendApiClient.cs`
+- Modify: `agent/src/AttendanceAgent/Api/BackendApiClient.cs`
+- Modify: `agent/tests/AttendanceAgent.Tests/FakeBackendApiClient.cs`
+- Modify: `agent/src/AttendanceAgent/ViewModels/MainViewModel.cs`
+- Test: `agent/tests/AttendanceAgent.Tests/BackendApiClientTests.cs`
+- Test: `agent/tests/AttendanceAgent.Tests/MainViewModelTests.cs`
+
+**Interfaces:**
+- Consumes: `GET /api/health/station`'s new `TenantId` field (Task 6).
+- Produces: `LoginResult` gains a second field, `TenantId` (default `null`, so every existing `new LoginResult("TenantAdmin")` call site across Tasks 1-5's tests keeps compiling unchanged); `IBackendApiClient.GetStationTenantIdAsync(CancellationToken ct = default)` returning `Task<Guid?>`.
+
+**Design note — same error message either way.** A wrong password, a non-admin role, and a tenant mismatch all produce the identical `"Admin login failed."` message. Don't give a would-be attacker a more specific reason (e.g. "wrong company") to distinguish a valid-but-wrong-tenant admin account from an outright invalid one.
+
+**Breaking change you must handle:** the 4 existing `AdminLogin_*` tests in `MainViewModelTests.cs` that expect a successful login (`AdminLogin_CorrectTenantAdminCredentials_SwitchesToEnrollPanel`) construct `new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin") }` with no tenant configured. Once this task's tenant check goes in, `FakeBackendApiClient.GetStationTenantIdAsync` must be given a matching `StationTenantId` in each of those tests, or they'll now fail (an admin login with no determinable station tenant is treated as untrusted, fails closed) — update them, don't loosen the production check to make them pass unmodified.
+
+- [ ] **Step 1: Write the failing tests**
+
+```csharp
+// Add to agent/tests/AttendanceAgent.Tests/BackendApiClientTests.cs, inside the existing class body
+
+[Fact]
+public async Task GetStationTenantIdAsync_Success_ReturnsTenantId()
+{
+    using var db = DbWithSettings();
+    var tenantId = Guid.NewGuid();
+    var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+    {
+        Content = JsonContent.Create(new { status = "ok", stationId = Guid.NewGuid(), tenantId }),
+    });
+    var client = new BackendApiClient(new HttpClient(handler), db);
+
+    var result = await client.GetStationTenantIdAsync();
+
+    Assert.Equal(tenantId, result);
+    Assert.Equal("secret-key", handler.LastRequest!.Headers.GetValues("X-Station-Key").Single());
+}
+
+[Fact]
+public async Task GetStationTenantIdAsync_HttpFailure_ReturnsNull()
+{
+    using var db = DbWithSettings();
+    var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+    var client = new BackendApiClient(new HttpClient(handler), db);
+
+    var result = await client.GetStationTenantIdAsync();
+
+    Assert.Null(result);
+}
+```
+
+```csharp
+// Add to agent/tests/AttendanceAgent.Tests/MainViewModelTests.cs, inside the existing class body
+
+[Fact]
+public async Task AdminLogin_MatchingTenant_SwitchesToEnrollPanel()
+{
+    var tenantId = Guid.NewGuid();
+    var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", tenantId), StationTenantId = tenantId };
+    var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
+    var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+
+    await vm.AdminLoginCommand.ExecuteAsync(null);
+
+    Assert.Equal(Visibility.Collapsed, vm.PunchPanelVisibility);
+    Assert.Equal(Visibility.Visible, vm.EnrollPanelVisibility);
+}
+
+[Fact]
+public async Task AdminLogin_DifferentTenantThanStation_StaysOnPunchPanelWithError()
+{
+    var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", Guid.NewGuid()), StationTenantId = Guid.NewGuid() };
+    var prompt = new FakeAdminCredentialPrompt { Result = ("admin@othertenant.test", "correct-horse-battery") };
+    var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+
+    await vm.AdminLoginCommand.ExecuteAsync(null);
+
+    Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
+    Assert.Equal(Visibility.Collapsed, vm.EnrollPanelVisibility);
+    Assert.Equal("Admin login failed.", vm.StatusMessage);
+}
+
+[Fact]
+public async Task AdminLogin_StationTenantUnknown_StaysOnPunchPanelWithError()
+{
+    // GetStationTenantIdAsync returning null (network failure, station-key rejected, etc.) must
+    // fail closed — an admin login with no determinable station tenant must NOT be treated as a
+    // match just because there's nothing to contradict it.
+    var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", Guid.NewGuid()), StationTenantId = null };
+    var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
+    var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+
+    await vm.AdminLoginCommand.ExecuteAsync(null);
+
+    Assert.Equal("Admin login failed.", vm.StatusMessage);
+}
+```
+
+Update the 4 existing passing-case `AdminLogin_*` tests in the same file (search for `LoginResult = new LoginResult("TenantAdmin")` used to represent a SUCCESSFUL login, not the wrong-role/null-result failure tests) to also set a matching `StationTenantId` on the `FakeBackendApiClient` and pass that same tenant id into `new LoginResult("TenantAdmin", thatSameTenantId)`, per the "Breaking change" note above.
+
+- [ ] **Step 2: Run the tests to verify they fail to compile**
+
+Run: `dotnet test agent/tests/AttendanceAgent.Tests`
+Expected: build error — `LoginResult`'s 2-arg constructor, `FakeBackendApiClient.StationTenantId`, and `IBackendApiClient.GetStationTenantIdAsync` don't exist yet.
+
+- [ ] **Step 3: Extend `LoginResult` and add the DTOs**
+
+```csharp
+// In agent/src/AttendanceAgent/Api/ApiDtos.cs, change this existing line:
+public record LoginResult(string Role);
+// to:
+public record LoginResult(string Role, Guid? TenantId = null);
+
+// And add this new internal record alongside the other internal wire-shape records:
+internal record StationHealthResponsePayload(string Status, Guid StationId, Guid TenantId);
+```
+
+- [ ] **Step 4: Add the interface method**
+
+```csharp
+// Add to agent/src/AttendanceAgent/Api/IBackendApiClient.cs's interface body:
+    Task<Guid?> GetStationTenantIdAsync(CancellationToken ct = default);
+```
+
+- [ ] **Step 5: Implement it**
+
+```csharp
+// Add to agent/src/AttendanceAgent/Api/BackendApiClient.cs, inside the class body
+
+public async Task<Guid?> GetStationTenantIdAsync(CancellationToken ct = default)
+{
+    var request = await BuildRequestAsync(HttpMethod.Get, "/api/health/station", ct);
+    var response = await _http.SendAsync(request, ct);
+    if (!response.IsSuccessStatusCode) return null;
+    var result = await response.Content.ReadFromJsonAsync<StationHealthResponsePayload>(JsonOptions, ct);
+    return result?.TenantId;
+}
+```
+
+- [ ] **Step 6: Update `FakeBackendApiClient`**
+
+```csharp
+// Add to agent/tests/AttendanceAgent.Tests/FakeBackendApiClient.cs, inside the class body
+
+public Guid? StationTenantId { get; set; }
+
+public Task<Guid?> GetStationTenantIdAsync(CancellationToken ct = default) => Task.FromResult(StationTenantId);
+```
+
+- [ ] **Step 7: Update `MainViewModel.AdminLoginAsync`**
+
+```csharp
+// Replace the existing AdminLoginAsync method body in agent/src/AttendanceAgent/ViewModels/MainViewModel.cs with:
+
+    [RelayCommand]
+    private async Task AdminLoginAsync()
+    {
+        var credentials = _prompt.PromptForCredentials();
+        if (credentials is null) return;
+
+        var login = await _api.LoginAsync(credentials.Value.Email, credentials.Value.Password);
+        if (login is null || login.Role != "TenantAdmin")
+        {
+            StatusMessage = "Admin login failed.";
+            return;
+        }
+
+        // Role alone isn't enough: a TenantAdmin for ANY tenant would otherwise unlock enrollment
+        // on THIS station regardless of which company owns it. GetStationTenantIdAsync returning
+        // null (network failure, etc.) fails closed — treated the same as a mismatch, not as "no
+        // reason to reject."
+        var stationTenantId = await _api.GetStationTenantIdAsync();
+        if (stationTenantId is null || login.TenantId != stationTenantId)
+        {
+            StatusMessage = "Admin login failed.";
+            return;
+        }
+
+        StatusMessage = "";
+        PunchPanelVisibility = Visibility.Collapsed;
+        EnrollPanelVisibility = Visibility.Visible;
+    }
+```
+
+- [ ] **Step 8: Run the tests to verify they pass**
+
+Run: `dotnet test agent/tests/AttendanceAgent.Tests`
+Expected: all tests pass, including the 2 new `BackendApiClientTests` and 3 new `MainViewModelTests`, with the 4 pre-existing `AdminLogin_*` success-case tests updated per the "Breaking change" note rather than deleted or weakened.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add agent/src/AttendanceAgent/Api agent/src/AttendanceAgent/ViewModels/MainViewModel.cs agent/tests/AttendanceAgent.Tests/BackendApiClientTests.cs agent/tests/AttendanceAgent.Tests/FakeBackendApiClient.cs agent/tests/AttendanceAgent.Tests/MainViewModelTests.cs
+git commit -m "feat: reject admin logins that don't belong to the station's own tenant"
 ```
 
 ---
