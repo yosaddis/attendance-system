@@ -102,6 +102,13 @@ automated:
     `AcquireFingerprint`-backed `Capture()` used for punches. Confirm this assumption holds
     in practice — if a future SDK version or device firmware introduces a
     purpose-distinguishing capture mode, this would need revisiting.
+12. **Merged-template buffer size.** `ZkFingerprintEnroller`'s `DBMerge` output buffer is sized
+    at 2048 bytes — the same constant used for a single-capture template
+    (`ZkFingerprintDevice.TemplateBufferSize`), but with no hardware confirmation that a
+    *merged, 3-sample* registration template actually fits in that size on this device. If a
+    real merge ever needed more space, the failure mode depends on how the native marshaling
+    handles an undersized output buffer — confirm real merged-template sizes against hardware
+    before relying on this constant.
 
 **Known risk, not yet mitigated:** `zkfp2.DBMatch` (called from
 `ZkFingerprintVerifier.Verify`) crashed the entire agent process with an
