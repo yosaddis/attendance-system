@@ -18,4 +18,11 @@ public class SecuGenFingerprintDeviceRegistrationTests
         Assert.IsAssignableFrom<AttendanceAgent.Devices.IFingerprintVerifier>(
             (object)Activator.CreateInstance(typeof(SecuGenFingerprintVerifier))!);
     }
+
+    [Fact]
+    public void SecuGenFingerprintEnroller_ImplementsIFingerprintEnroller()
+    {
+        Assert.IsAssignableFrom<AttendanceAgent.Devices.IFingerprintEnroller>(
+            (object)Activator.CreateInstance(typeof(SecuGenFingerprintEnroller))!);
+    }
 }

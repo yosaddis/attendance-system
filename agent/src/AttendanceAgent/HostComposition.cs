@@ -72,6 +72,7 @@ public static class HostComposition
 #else
         services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintDevice>();
         services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintVerifier>();
+        services.AddSingleton<IFingerprintEnroller, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintEnroller>();
 #endif
 
         // MainViewModel/MainWindow are Scoped (not Singleton) because they transitively depend on

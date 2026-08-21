@@ -33,11 +33,7 @@ public class SecuGenFingerprintDevice : IFingerprintDevice
 
     public byte[] Capture()
     {
-        // Kiosk mode: no popup window, no on-screen fingerprint preview —
-        // this station has no operator watching a capture dialog.
-        _secuBsp.CaptureWindowOption.WindowStyle = (int)WindowStyle.INVISIBLE;
-        _secuBsp.CaptureWindowOption.ShowFPImage = false;
-        _secuBsp.CaptureWindowOption.FingerWindow = IntPtr.Zero;
+        ConfigureKioskCaptureWindow();
 
         var err = _secuBsp.Capture(FIRPurpose.VERIFY);
         if (err != BSPError.ERROR_NONE)
@@ -46,14 +42,35 @@ public class SecuGenFingerprintDevice : IFingerprintDevice
         return SecuGenFirTextEncoding.ToBytes(_secuBsp.FIRTextData);
     }
 
-    // Placeholder to satisfy IFingerprintDevice until the real SecuGen enrollment path
-    // (Capture(FIRPurpose.ENROLL) feeding the iterative CreateTemplate merge) is implemented
-    // and validated against real hardware, per the fingerprint-enrollment plan's Task 5.
-    public byte[] CaptureForEnrollment() =>
-        throw new NotImplementedException("SecuGen enrollment capture is not yet implemented.");
+    public byte[] CaptureForEnrollment()
+    {
+        ConfigureKioskCaptureWindow();
+
+        // Enroll() is a genuinely different vendor call from Capture(FIRPurpose.VERIFY) —
+        // confirmed by reading the vendor's own mainform.cs demo, which uses Enroll() only for
+        // its enrollment flow and Capture(FIRPurpose.VERIFY) only for its verify flow. The
+        // empty string is the payload parameter (SecuGen's Enroll/CreateTemplate can embed an
+        // arbitrary string into the resulting FIR) — this system tracks employee identity
+        // entirely in its own backend, so no vendor-side payload is used.
+        var err = _secuBsp.Enroll("");
+        if (err != BSPError.ERROR_NONE)
+            throw new InvalidOperationException($"Fingerprint enrollment capture failed (Enroll: {err}).");
+
+        return SecuGenFirTextEncoding.ToBytes(_secuBsp.FIRTextData);
+    }
 
     public void Release()
     {
         _secuBsp.CloseDevice();
+    }
+
+    // Kiosk mode: no popup window, no on-screen fingerprint preview — this station has no
+    // operator watching a capture dialog. Shared by both Capture() and CaptureForEnrollment(),
+    // which both need the exact same window suppression.
+    private void ConfigureKioskCaptureWindow()
+    {
+        _secuBsp.CaptureWindowOption.WindowStyle = (int)WindowStyle.INVISIBLE;
+        _secuBsp.CaptureWindowOption.ShowFPImage = false;
+        _secuBsp.CaptureWindowOption.FingerWindow = IntPtr.Zero;
     }
 }

@@ -48,6 +48,15 @@ and cannot be automated:
 5. Disconnect the network, punch in/out several times, reconnect — verify
    the queued punches sync within 30 seconds and appear in the backend's
    daily attendance view exactly once each (no duplicates).
+6. **Enrollment via `Enroll()`, not `Capture()`.** Confirm the vendor's `Enroll("")` call
+   works reliably in kiosk mode (`ConfigureKioskCaptureWindow`'s settings) the same way
+   `Capture(FIRPurpose.VERIFY)` already does — this is a different vendor call, not the same
+   one Task 10 already hardware-verified, so its own timeout/window behavior needs its own
+   confirmation rather than being assumed identical.
+7. **Iterative merge quality.** `SecuGenFingerprintEnroller.MergeCaptures` folds captures one
+   at a time via `CreateTemplate`. Confirm against real hardware that three genuine
+   placements of the same finger fold into a template that later verifies correctly through
+   the existing punch flow.
 
 ### ZK4500
 
