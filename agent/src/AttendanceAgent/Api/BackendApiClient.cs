@@ -91,4 +91,13 @@ public class BackendApiClient : IBackendApiClient
         var response = await _http.SendAsync(request, ct);
         return response.IsSuccessStatusCode;
     }
+
+    public async Task<Guid?> GetStationTenantIdAsync(CancellationToken ct = default)
+    {
+        var request = await BuildRequestAsync(HttpMethod.Get, "/api/health/station", ct);
+        var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode) return null;
+        var result = await response.Content.ReadFromJsonAsync<StationHealthResponsePayload>(JsonOptions, ct);
+        return result?.TenantId;
+    }
 }

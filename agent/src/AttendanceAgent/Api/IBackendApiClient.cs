@@ -9,4 +9,5 @@ public interface IBackendApiClient
     Task<PunchBatchSubmitResult> SubmitPunchesAsync(IReadOnlyList<QueuedPunch> punches, CancellationToken ct = default);
     Task<LoginResult?> LoginAsync(string email, string password, CancellationToken ct = default);
     Task<bool> EnrollTemplateAsync(Guid employeeId, byte[] templateData, CancellationToken ct = default);
+    Task<Guid?> GetStationTenantIdAsync(CancellationToken ct = default);
 }

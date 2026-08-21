@@ -19,6 +19,7 @@ public class FakeBackendApiClient : IBackendApiClient
     public bool EnrollTemplateResult { get; set; } = true;
     public bool ThrowOnEnrollTemplate { get; set; }
     public (Guid EmployeeId, byte[] TemplateData)? LastEnrolledTemplate { get; private set; }
+    public Guid? StationTenantId { get; set; }
 
     public Task<EmployeeLookupResult?> LookupEmployeeAsync(string code, CancellationToken ct = default)
     {
@@ -53,4 +54,6 @@ public class FakeBackendApiClient : IBackendApiClient
         LastEnrolledTemplate = (employeeId, templateData);
         return Task.FromResult(EnrollTemplateResult);
     }
+
+    public Task<Guid?> GetStationTenantIdAsync(CancellationToken ct = default) => Task.FromResult(StationTenantId);
 }

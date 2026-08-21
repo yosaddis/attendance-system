@@ -238,5 +238,8 @@ public class SyncBackgroundServiceThreadingTests
 
         public Task<bool> EnrollTemplateAsync(Guid employeeId, byte[] templateData, CancellationToken ct = default) =>
             throw new NotSupportedException();
+
+        public Task<Guid?> GetStationTenantIdAsync(CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 }

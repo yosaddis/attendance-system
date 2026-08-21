@@ -255,4 +255,33 @@ public class BackendApiClientTests
 
         Assert.False(result);
     }
+
+    [Fact]
+    public async Task GetStationTenantIdAsync_Success_ReturnsTenantId()
+    {
+        using var db = DbWithSettings();
+        var tenantId = Guid.NewGuid();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new { status = "ok", stationId = Guid.NewGuid(), tenantId }),
+        });
+        var client = new BackendApiClient(new HttpClient(handler), db);
+
+        var result = await client.GetStationTenantIdAsync();
+
+        Assert.Equal(tenantId, result);
+        Assert.Equal("secret-key", handler.LastRequest!.Headers.GetValues("X-Station-Key").Single());
+    }
+
+    [Fact]
+    public async Task GetStationTenantIdAsync_HttpFailure_ReturnsNull()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var client = new BackendApiClient(new HttpClient(handler), db);
+
+        var result = await client.GetStationTenantIdAsync();
+
+        Assert.Null(result);
+    }
 }

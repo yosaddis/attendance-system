@@ -38,7 +38,8 @@ public class MainViewModelTests
     [Fact]
     public async Task AdminLogin_CorrectTenantAdminCredentials_SwitchesToEnrollPanel()
     {
-        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin") };
+        var tenantId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", tenantId), StationTenantId = tenantId };
         var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
         var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
 
@@ -46,6 +47,49 @@ public class MainViewModelTests
 
         Assert.Equal(Visibility.Collapsed, vm.PunchPanelVisibility);
         Assert.Equal(Visibility.Visible, vm.EnrollPanelVisibility);
+    }
+
+    [Fact]
+    public async Task AdminLogin_MatchingTenant_SwitchesToEnrollPanel()
+    {
+        var tenantId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", tenantId), StationTenantId = tenantId };
+        var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
+        var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+
+        await vm.AdminLoginCommand.ExecuteAsync(null);
+
+        Assert.Equal(Visibility.Collapsed, vm.PunchPanelVisibility);
+        Assert.Equal(Visibility.Visible, vm.EnrollPanelVisibility);
+    }
+
+    [Fact]
+    public async Task AdminLogin_DifferentTenantThanStation_StaysOnPunchPanelWithError()
+    {
+        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", Guid.NewGuid()), StationTenantId = Guid.NewGuid() };
+        var prompt = new FakeAdminCredentialPrompt { Result = ("admin@othertenant.test", "correct-horse-battery") };
+        var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+
+        await vm.AdminLoginCommand.ExecuteAsync(null);
+
+        Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
+        Assert.Equal(Visibility.Collapsed, vm.EnrollPanelVisibility);
+        Assert.Equal("Admin login failed.", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task AdminLogin_StationTenantUnknown_StaysOnPunchPanelWithError()
+    {
+        // GetStationTenantIdAsync returning null (network failure, station-key rejected, etc.) must
+        // fail closed — an admin login with no determinable station tenant must NOT be treated as a
+        // match just because there's nothing to contradict it.
+        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", Guid.NewGuid()), StationTenantId = null };
+        var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
+        var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+
+        await vm.AdminLoginCommand.ExecuteAsync(null);
+
+        Assert.Equal("Admin login failed.", vm.StatusMessage);
     }
 
     [Fact]

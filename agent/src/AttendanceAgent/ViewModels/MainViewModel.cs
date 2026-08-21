@@ -71,6 +71,17 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
+        // Role alone isn't enough: a TenantAdmin for ANY tenant would otherwise unlock enrollment
+        // on THIS station regardless of which company owns it. GetStationTenantIdAsync returning
+        // null (network failure, etc.) fails closed — treated the same as a mismatch, not as "no
+        // reason to reject."
+        var stationTenantId = await _api.GetStationTenantIdAsync();
+        if (stationTenantId is null || login.TenantId != stationTenantId)
+        {
+            StatusMessage = "Admin login failed.";
+            return;
+        }
+
         StatusMessage = "";
         PunchPanelVisibility = Visibility.Collapsed;
         EnrollPanelVisibility = Visibility.Visible;
