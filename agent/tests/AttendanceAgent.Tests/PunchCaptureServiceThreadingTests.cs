@@ -103,6 +103,8 @@ public class PunchCaptureServiceThreadingTests
             return new byte[] { 9, 9 };
         }
 
+        public byte[] CaptureForEnrollment() => throw new NotSupportedException("Not used by this test.");
+
         public void Release() { }
     }
 

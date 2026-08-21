@@ -46,6 +46,12 @@ public class SecuGenFingerprintDevice : IFingerprintDevice
         return SecuGenFirTextEncoding.ToBytes(_secuBsp.FIRTextData);
     }
 
+    // Placeholder to satisfy IFingerprintDevice until the real SecuGen enrollment path
+    // (Capture(FIRPurpose.ENROLL) feeding the iterative CreateTemplate merge) is implemented
+    // and validated against real hardware, per the fingerprint-enrollment plan's Task 5.
+    public byte[] CaptureForEnrollment() =>
+        throw new NotImplementedException("SecuGen enrollment capture is not yet implemented.");
+
     public void Release()
     {
         _secuBsp.CloseDevice();

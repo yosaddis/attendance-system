@@ -108,6 +108,7 @@ public class StartupGuardsTests
     {
         public void Acquire() { }
         public byte[] Capture() => Array.Empty<byte>();
+        public byte[] CaptureForEnrollment() => Array.Empty<byte>();
         public void Release() { }
     }
 

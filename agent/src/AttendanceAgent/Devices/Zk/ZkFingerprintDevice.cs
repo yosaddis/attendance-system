@@ -120,6 +120,16 @@ public class ZkFingerprintDevice : IFingerprintDevice
         throw new InvalidOperationException($"Fingerprint capture timed out (last AcquireFingerprint result: {lastErr}).");
     }
 
+    // Placeholder to satisfy IFingerprintDevice until the real ZK4500 enrollment path
+    // (repeated AcquireFingerprint + zkfp2's DBMerge to fold 3 samples into one template) is
+    // implemented and validated against real hardware. Deliberately not guessed at here: the
+    // ZKFinger SDK's DBMatch/DBMerge calls carry a documented, unmitigated
+    // AccessViolationException risk (see the "docs: document unmitigated AccessViolationException
+    // risk in ZKFinger DBMatch" commit), so this needs real-hardware testing rather than an
+    // untested implementation slipped in as a side effect of an interface change.
+    public byte[] CaptureForEnrollment() =>
+        throw new NotImplementedException("ZK4500 enrollment capture is not yet implemented.");
+
     public void Release()
     {
         if (_devHandle != IntPtr.Zero)
