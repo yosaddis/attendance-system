@@ -65,4 +65,30 @@ public class BackendApiClient : IBackendApiClient
 
         return PunchBatchSubmitResult.TransientFailure;
     }
+
+    public async Task<LoginResult?> LoginAsync(string email, string password, CancellationToken ct = default)
+    {
+        // Deliberately does NOT go through BuildRequestAsync — that helper always attaches
+        // X-Station-Key, but /api/auth/login is the same public login endpoint the web portal
+        // uses, not a station-scoped call. This is only ever used as a one-time admin-gate
+        // check; the resulting JWT is not read from the response or stored anywhere.
+        var settings = await _db.Settings.SingleAsync(ct);
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(new Uri(settings.BackendBaseUrl), "/api/auth/login"))
+        {
+            Content = JsonContent.Create(new LoginRequestPayload(email, password), options: JsonOptions),
+        };
+        var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode) return null;
+        return await response.Content.ReadFromJsonAsync<LoginResult>(JsonOptions, ct);
+    }
+
+    public async Task<bool> EnrollTemplateAsync(Guid employeeId, byte[] templateData, CancellationToken ct = default)
+    {
+        var request = await BuildRequestAsync(HttpMethod.Post, "/api/templates", ct);
+        request.Content = JsonContent.Create(
+            new EnrollTemplateRequestPayload(employeeId, Convert.ToBase64String(templateData)),
+            options: JsonOptions);
+        var response = await _http.SendAsync(request, ct);
+        return response.IsSuccessStatusCode;
+    }
 }

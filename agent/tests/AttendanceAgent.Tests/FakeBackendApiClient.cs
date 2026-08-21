@@ -14,6 +14,11 @@ public class FakeBackendApiClient : IBackendApiClient
     public PunchBatchSubmitResult SubmitResult { get; set; } = PunchBatchSubmitResult.Accepted;
     public bool ThrowOnSubmit { get; set; }
     public Func<Exception>? SubmitExceptionToThrow { get; set; }
+    public LoginResult? LoginResult { get; set; }
+    public bool ThrowOnLogin { get; set; }
+    public bool EnrollTemplateResult { get; set; } = true;
+    public bool ThrowOnEnrollTemplate { get; set; }
+    public (Guid EmployeeId, byte[] TemplateData)? LastEnrolledTemplate { get; private set; }
 
     public Task<EmployeeLookupResult?> LookupEmployeeAsync(string code, CancellationToken ct = default)
     {
@@ -34,5 +39,18 @@ public class FakeBackendApiClient : IBackendApiClient
         if (SubmitExceptionToThrow is not null) throw SubmitExceptionToThrow();
         if (ThrowOnSubmit) throw new HttpRequestException("offline");
         return Task.FromResult(SubmitResult);
+    }
+
+    public Task<LoginResult?> LoginAsync(string email, string password, CancellationToken ct = default)
+    {
+        if (ThrowOnLogin) throw new HttpRequestException("offline");
+        return Task.FromResult(LoginResult);
+    }
+
+    public Task<bool> EnrollTemplateAsync(Guid employeeId, byte[] templateData, CancellationToken ct = default)
+    {
+        if (ThrowOnEnrollTemplate) throw new HttpRequestException("offline");
+        LastEnrolledTemplate = (employeeId, templateData);
+        return Task.FromResult(EnrollTemplateResult);
     }
 }

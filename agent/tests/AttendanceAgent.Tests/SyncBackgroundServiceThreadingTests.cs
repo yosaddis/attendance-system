@@ -232,5 +232,11 @@ public class SyncBackgroundServiceThreadingTests
             // nothing left to retry on subsequent ticks.
             return Task.FromResult(PunchBatchSubmitResult.TransientFailure);
         }
+
+        public Task<LoginResult?> LoginAsync(string email, string password, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool> EnrollTemplateAsync(Guid employeeId, byte[] templateData, CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 }

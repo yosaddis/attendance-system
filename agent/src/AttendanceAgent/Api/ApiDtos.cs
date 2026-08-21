@@ -1,10 +1,13 @@
 namespace AttendanceAgent.Api;
 
 public record EmployeeLookupResult(Guid EmployeeId, string EmployeeCode, string Name);
+public record LoginResult(string Role);
 
 internal record TemplateFetchResponse(Guid EmployeeId, string TemplateData, DateTimeOffset EnrolledAt);
 internal record PunchPayload(Guid Id, Guid EmployeeId, string PunchType, DateTimeOffset Timestamp);
 internal record PunchBatchPayload(List<PunchPayload> Punches);
+internal record LoginRequestPayload(string Email, string Password);
+internal record EnrollTemplateRequestPayload(Guid EmployeeId, string TemplateData);
 
 /// <summary>
 /// Outcome of submitting a punch batch, distinguishing a permanent, batch-level rejection from a

@@ -167,4 +167,92 @@ public class BackendApiClientTests
         Assert.Equal("In", first.GetProperty("PunchType").GetString());
         Assert.Equal(timestamp, first.GetProperty("Timestamp").GetDateTimeOffset());
     }
+
+    [Fact]
+    public async Task LoginAsync_Success_ReturnsRole()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new { token = "abc", role = "TenantAdmin", tenantId = Guid.NewGuid() }),
+        });
+        var client = new BackendApiClient(new HttpClient(handler), db);
+
+        var result = await client.LoginAsync("admin@acme.test", "correct-horse-battery");
+
+        Assert.Equal("TenantAdmin", result!.Role);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.EndsWith("/api/auth/login", handler.LastRequest!.RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task LoginAsync_Unauthorized_ReturnsNull()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        var client = new BackendApiClient(new HttpClient(handler), db);
+
+        var result = await client.LoginAsync("admin@acme.test", "wrong-password");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task LoginAsync_PostsEmailAndPasswordAsJsonBody()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new { token = "abc", role = "TenantAdmin" }),
+        });
+        var client = new BackendApiClient(new HttpClient(handler), db);
+
+        await client.LoginAsync("admin@acme.test", "correct-horse-battery");
+
+        var body = await handler.LastRequest!.Content!.ReadAsStringAsync();
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal("admin@acme.test", json.RootElement.GetProperty("Email").GetString());
+        Assert.Equal("correct-horse-battery", json.RootElement.GetProperty("Password").GetString());
+    }
+
+    [Fact]
+    public async Task EnrollTemplateAsync_Success_ReturnsTrue_AndSendsStationKeyHeader()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
+        var client = new BackendApiClient(new HttpClient(handler), db);
+
+        var result = await client.EnrollTemplateAsync(Guid.NewGuid(), new byte[] { 1, 2, 3 });
+
+        Assert.True(result);
+        Assert.Equal("secret-key", handler.LastRequest!.Headers.GetValues("X-Station-Key").Single());
+    }
+
+    [Fact]
+    public async Task EnrollTemplateAsync_EncodesTemplateAsBase64InRequestBody()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK));
+        var client = new BackendApiClient(new HttpClient(handler), db);
+        var employeeId = Guid.NewGuid();
+
+        await client.EnrollTemplateAsync(employeeId, new byte[] { 1, 2, 3 });
+
+        var body = await handler.LastRequest!.Content!.ReadAsStringAsync();
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal(employeeId, json.RootElement.GetProperty("EmployeeId").GetGuid());
+        Assert.Equal(Convert.ToBase64String(new byte[] { 1, 2, 3 }), json.RootElement.GetProperty("TemplateData").GetString());
+    }
+
+    [Fact]
+    public async Task EnrollTemplateAsync_HttpFailure_ReturnsFalse()
+    {
+        using var db = DbWithSettings();
+        var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest));
+        var client = new BackendApiClient(new HttpClient(handler), db);
+
+        var result = await client.EnrollTemplateAsync(Guid.NewGuid(), new byte[] { 1, 2, 3 });
+
+        Assert.False(result);
+    }
 }
