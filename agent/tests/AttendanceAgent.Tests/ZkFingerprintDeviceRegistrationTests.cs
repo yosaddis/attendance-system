@@ -18,4 +18,11 @@ public class ZkFingerprintDeviceRegistrationTests
         Assert.IsAssignableFrom<AttendanceAgent.Devices.IFingerprintVerifier>(
             (object)Activator.CreateInstance(typeof(ZkFingerprintVerifier))!);
     }
+
+    [Fact]
+    public void ZkFingerprintEnroller_ImplementsIFingerprintEnroller()
+    {
+        Assert.IsAssignableFrom<AttendanceAgent.Devices.IFingerprintEnroller>(
+            (object)Activator.CreateInstance(typeof(ZkFingerprintEnroller))!);
+    }
 }

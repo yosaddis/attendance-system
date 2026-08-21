@@ -68,6 +68,7 @@ public static class HostComposition
 #elif DEVICE_VENDOR_ZK4500
         services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.Zk.ZkFingerprintDevice>();
         services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.Zk.ZkFingerprintVerifier>();
+        services.AddSingleton<IFingerprintEnroller, AttendanceAgent.Devices.Zk.ZkFingerprintEnroller>();
 #else
         services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintDevice>();
         services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintVerifier>();

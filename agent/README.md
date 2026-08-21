@@ -91,6 +91,17 @@ automated:
 9. Disconnect the network, punch in/out several times, reconnect — verify
    the queued punches sync within 30 seconds and appear in the backend's
    daily attendance view exactly once each (no duplicates).
+10. **Enrollment merge quality.** `ZkFingerprintEnroller.MergeCaptures` requires exactly 3
+    raw captures and folds them via a single `DBMerge` call. Confirm against real hardware
+    that three genuine placements of the same finger merge into a template that later
+    verifies correctly through the existing punch flow (not just that `DBMerge` returns
+    `ZKFP_ERR_OK`) — a technically-successful merge of three placements that weren't
+    consistent enough could still produce a poor-quality template.
+11. **`CaptureForEnrollment` reusing `Capture()`.** Confirmed via reflection that ZK's SDK has
+    no separate enrollment-purpose acquisition call, so this delegates directly to the same
+    `AcquireFingerprint`-backed `Capture()` used for punches. Confirm this assumption holds
+    in practice — if a future SDK version or device firmware introduces a
+    purpose-distinguishing capture mode, this would need revisiting.
 
 **Known risk, not yet mitigated:** `zkfp2.DBMatch` (called from
 `ZkFingerprintVerifier.Verify`) crashed the entire agent process with an
