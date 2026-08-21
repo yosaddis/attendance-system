@@ -2337,6 +2337,29 @@ already cover as a side effect.
   `FakeBackendApiClient.EnrollTemplateResult`/`ThrowOnEnrollTemplate` already exist — this gap is
   part of why C1 survived 5 per-task reviews.
 
+**Added after Task 8's own review** (its implementer flagged one, its reviewer flagged the
+rest — none of these were in the original whole-branch review, they're new findings from
+reviewing the fix):
+
+- **Important**: once an admin unlocks the Enroll panel, there is no way back to the punch
+  panel except starting an enrollment and either completing or cancelling it —
+  `StartEnrollmentCancelCommand` (from `IncludeCancelCommand = true`) is only enabled while
+  `StartEnrollmentAsync` is actually running. Reproduced live: idle on the Enroll panel,
+  `StartEnrollmentCancelCommand.CanExecute(null)` is `false`, and the punch panel is
+  `Collapsed` (so its buttons are unreachable — WPF does not hit-test collapsed elements). On a
+  kiosk, an admin who authenticates and is then called away leaves the station with no punch UI
+  reachable by anyone until someone clicks "Start Enrollment" with a throwaway code and waits
+  out the failure, or the app is restarted.
+- **Minor**: cancellation during `Acquire()` or `MergeCaptures()` (as opposed to the capture
+  loop) reports a generic `"Failed to access fingerprint device: A task was canceled."`/
+  `"Failed to build enrollment template: A task was canceled."` instead of the friendlier
+  `"Enrollment cancelled."` the capture loop already gives — Task 8 only added the
+  `OperationCanceledException`-specific catch to the loop, not the other two try/catch blocks.
+- **Minor**: `IsDeviceBusy`/`CanUseDevice` has no direct test coverage. Task 8's own tests only
+  prove enrollment blocks a punch — no test proves the reverse (punch blocks enrollment), and no
+  test proves `PunchAsync`'s `finally` actually clears `IsDeviceBusy` if
+  `CapturePunchAsync` itself throws (the "stuck busy forever" failure mode).
+
 Not fixed here, by design: **M3** (the admin password is collected via
 `Microsoft.VisualBasic.Interaction.InputBox`, which cannot mask input) and **I5**/SecuGen's
 "1 of 3" progress text possibly not matching the vendor's real per-`Enroll()`-call sample count —
@@ -2350,15 +2373,20 @@ not validated) is folded into this task since it's a one-line defensive check.
 - Modify: `agent/src/AttendanceAgent/StartupGuards.cs`
 - Modify: `agent/src/AttendanceAgent/HostComposition.cs`
 - Modify: `agent/src/AttendanceAgent/Devices/Zk/ZkFingerprintEnroller.cs`
+- Modify: `agent/src/AttendanceAgent/ViewModels/MainViewModel.cs`
+- Modify: `agent/src/AttendanceAgent/MainWindow.xaml`
 - Modify: `agent/README.md`
+- Modify: `agent/tests/AttendanceAgent.Tests/FakeCaptureService.cs`
 - Test: `agent/tests/AttendanceAgent.Tests/EnrollmentServiceTests.cs`
 - Test: `agent/tests/AttendanceAgent.Tests/StartupGuardsTests.cs`
 - Test: `agent/tests/AttendanceAgent.Tests/HostCompositionTests.cs`
+- Test: `agent/tests/AttendanceAgent.Tests/MainViewModelTests.cs`
 
 **Interfaces:**
 - Consumes: `ITemplateCacheService` (existing) — this task adds a new method to it.
 - Produces: `ITemplateCacheService.CacheTemplateAsync(Guid employeeId, byte[] templateData,
-  CancellationToken ct = default)`.
+  CancellationToken ct = default)`; `MainViewModel.ExitAdminModeCommand` (new, always enabled
+  except while an enrollment is actually running).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2683,7 +2711,229 @@ scope in each test, e.g. `new TemplateCacheService(api, db, NullLogger<TemplateC
 matching how `PunchCaptureServiceTests.cs` already wires real service classes together over
 fakes rather than mocking every collaborator.
 
-- [ ] **Step 8: Document the two open risks this task doesn't fix**
+- [ ] **Step 8: Write the failing tests for the exit command, cancellation messages, and missing `IsDeviceBusy` coverage**
+
+`FakeCaptureService` needs the same "hold it open" mechanism `FakeEnrollmentService` already
+has, to prove a punch blocks enrollment (not just the reverse, which Task 8 already tested):
+
+```csharp
+// agent/tests/AttendanceAgent.Tests/FakeCaptureService.cs — full file
+using AttendanceAgent.Devices;
+using AttendanceAgent.Services;
+
+namespace AttendanceAgent.Tests;
+
+public class FakeCaptureService : IPunchCaptureService
+{
+    public PunchResult Result { get; set; } = new(true, "ok");
+
+    /// <summary>
+    /// When set, CapturePunchAsync awaits this instead of returning Result immediately — lets a
+    /// test hold "punch in progress" open to assert CanExecute states on other commands.
+    /// </summary>
+    public TaskCompletionSource<PunchResult>? PendingCompletion { get; set; }
+
+    public bool ThrowOnCapture { get; set; }
+
+    public async Task<PunchResult> CapturePunchAsync(string employeeCode, string punchType, IFingerprintDevice device, CancellationToken ct = default)
+    {
+        if (ThrowOnCapture) throw new InvalidOperationException("Simulated capture failure.");
+        if (PendingCompletion is null) return Result;
+        return await PendingCompletion.Task;
+    }
+}
+```
+
+```csharp
+// Add to agent/tests/AttendanceAgent.Tests/MainViewModelTests.cs, inside the existing class body
+
+[Fact]
+public async Task PunchAndEnrollment_CannotRunConcurrently_TheOtherDirection()
+{
+    // Task 8 proved enrollment blocks a punch; this proves the reverse — a punch in progress
+    // must also block starting an enrollment, since both share the same device instance.
+    var pending = new TaskCompletionSource<PunchResult>();
+    var capture = new FakeCaptureService { PendingCompletion = pending };
+    var vm = new MainViewModel(capture, new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+    vm.EmployeeCode = "E001";
+
+    var punchTask = vm.PunchCommand.ExecuteAsync("In");
+
+    Assert.False(vm.StartEnrollmentCommand.CanExecute(null));
+
+    pending.SetResult(new PunchResult(true, "Punch recorded for Jane Doe."));
+    await punchTask;
+
+    Assert.True(vm.StartEnrollmentCommand.CanExecute(null));
+}
+
+[Fact]
+public async Task Punch_CaptureServiceThrows_StillClearsIsDeviceBusy()
+{
+    // The "stuck busy forever" failure mode: if PunchAsync's finally didn't run, IsDeviceBusy
+    // would stay true and both PunchCommand and StartEnrollmentCommand would be permanently
+    // disabled after a single unexpected exception.
+    var capture = new FakeCaptureService { ThrowOnCapture = true };
+    var vm = new MainViewModel(capture, new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+    vm.EmployeeCode = "E001";
+
+    await Assert.ThrowsAsync<InvalidOperationException>(() => vm.PunchCommand.ExecuteAsync("In"));
+
+    Assert.True(vm.PunchCommand.CanExecute("In"));
+    Assert.True(vm.StartEnrollmentCommand.CanExecute(null));
+}
+
+[Fact]
+public void ExitAdminMode_WhileIdleOnEnrollPanel_ReturnsToPunchPanel()
+{
+    var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+    vm.EnrollEmployeeCode = "E002";
+    vm.PunchPanelVisibility = Visibility.Collapsed;
+    vm.EnrollPanelVisibility = Visibility.Visible;
+
+    Assert.True(vm.ExitAdminModeCommand.CanExecute(null));
+    vm.ExitAdminModeCommand.Execute(null);
+
+    Assert.Equal("", vm.EnrollEmployeeCode);
+    Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
+    Assert.Equal(Visibility.Collapsed, vm.EnrollPanelVisibility);
+}
+
+[Fact]
+public async Task ExitAdminMode_WhileEnrollmentRunning_IsDisabled()
+{
+    var pending = new TaskCompletionSource<EnrollmentResult>();
+    var enrollment = new FakeEnrollmentService { PendingCompletion = pending };
+    var vm = new MainViewModel(new FakeCaptureService(), enrollment, new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+    vm.EnrollEmployeeCode = "E002";
+
+    var enrollTask = vm.StartEnrollmentCommand.ExecuteAsync(null);
+
+    Assert.False(vm.ExitAdminModeCommand.CanExecute(null));
+
+    pending.SetResult(new EnrollmentResult(true, "Fingerprint enrolled for Yoseph Addisu Abate."));
+    await enrollTask;
+
+    Assert.True(vm.ExitAdminModeCommand.CanExecute(null));
+}
+```
+
+Note: `Punch_CaptureServiceThrows_StillClearsIsDeviceBusy` expects `PunchAsync` to let the
+exception propagate out through `ExecuteAsync` (CommunityToolkit.Mvvm's `AsyncRelayCommand`
+does not swallow exceptions by default) — the point of this test is only that `IsDeviceBusy`
+resets despite that, not that the exception itself is handled gracefully (that's a separate,
+pre-existing concern outside this task's scope).
+
+Run: `dotnet test agent/tests/AttendanceAgent.Tests`
+Expected: build error — `ExitAdminModeCommand` doesn't exist yet.
+
+- [ ] **Step 9: Add an always-available exit from admin/Enroll mode**
+
+```csharp
+// In agent/src/AttendanceAgent/ViewModels/MainViewModel.cs, add
+// [NotifyCanExecuteChangedFor(nameof(ExitAdminModeCommand))] to the existing isDeviceBusy
+// property's attribute list (alongside the two that are already there), so it reads:
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PunchCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartEnrollmentCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExitAdminModeCommand))]
+    private bool isDeviceBusy;
+```
+
+```csharp
+// Add this new command to MainViewModel.cs, anywhere after CanUseDevice() is defined:
+
+    // Without this, an admin who unlocks the Enroll panel and is called away (or simply changes
+    // their mind before clicking "Start Enrollment") leaves the station with NO reachable punch
+    // UI — the punch panel is Collapsed (WPF does not hit-test collapsed elements), and
+    // StartEnrollmentCancelCommand is only enabled while an enrollment is actually running.
+    // Reproduced live during Task 8's review: idle on the Enroll panel,
+    // StartEnrollmentCancelCommand.CanExecute(null) is false. Gated on CanUseDevice (not
+    // unconditionally enabled) so it can't be used to bypass a running enrollment — exiting
+    // while one is genuinely in flight must still go through Cancel.
+    [RelayCommand(CanExecute = nameof(CanUseDevice))]
+    private void ExitAdminMode()
+    {
+        EnrollEmployeeCode = "";
+        EnrollProgressMessage = "";
+        PunchPanelVisibility = Visibility.Visible;
+        EnrollPanelVisibility = Visibility.Collapsed;
+    }
+```
+
+```xml
+<!-- In agent/src/AttendanceAgent/MainWindow.xaml, add a third button to the Enroll panel's
+     WrapPanel, after the existing "Cancel" button: -->
+                <Button Content="Cancel" Command="{Binding StartEnrollmentCancelCommand}" Margin="0,0,8,0" />
+                <Button Content="Back" Command="{Binding ExitAdminModeCommand}" />
+```
+
+(Note the `Margin="0,0,8,0"` added to the existing "Cancel" button so it isn't flush against
+the new "Back" button — the other buttons in this WrapPanel already space themselves this way.)
+
+- [ ] **Step 10: Give cancellation during `Acquire()`/`MergeCaptures()` the same friendly message as the capture loop**
+
+```csharp
+// In agent/src/AttendanceAgent/Services/EnrollmentService.cs, replace this block:
+        try
+        {
+            await Task.Run(() => device.Acquire(), ct);
+        }
+        catch (Exception ex)
+        {
+            return new EnrollmentResult(false, $"Failed to access fingerprint device: {ex.Message}");
+        }
+
+// with:
+        try
+        {
+            await Task.Run(() => device.Acquire(), ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return new EnrollmentResult(false, "Enrollment cancelled.");
+        }
+        catch (Exception ex)
+        {
+            return new EnrollmentResult(false, $"Failed to access fingerprint device: {ex.Message}");
+        }
+```
+
+```csharp
+// In the same file, replace this block:
+        byte[] merged;
+        try
+        {
+            merged = await Task.Run(() => enroller.MergeCaptures(rawCaptures), ct);
+        }
+        catch (Exception ex)
+        {
+            return new EnrollmentResult(false, $"Failed to build enrollment template: {ex.Message}");
+        }
+
+// with:
+        byte[] merged;
+        try
+        {
+            merged = await Task.Run(() => enroller.MergeCaptures(rawCaptures), ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return new EnrollmentResult(false, "Enrollment cancelled.");
+        }
+        catch (Exception ex)
+        {
+            return new EnrollmentResult(false, $"Failed to build enrollment template: {ex.Message}");
+        }
+```
+
+(Step 3 above already added the empty-template check after this second block — keep that
+where it is; this step only touches the `catch` clauses above it.)
+
+Run: `dotnet test agent/tests/AttendanceAgent.Tests`
+Expected: all tests pass, including the 5 written in Step 8.
+
+- [ ] **Step 11: Document the two open risks this task doesn't fix**
 
 ```markdown
 <!-- Add to agent/README.md's "Real hardware bring-up" section, SecuGen subsection -->
@@ -2705,7 +2955,7 @@ fakes rather than mocking every collaborator.
    during this branch's review) before relying on the current progress text being accurate.
 ```
 
-- [ ] **Step 9: Run the full suite and both Release configs**
+- [ ] **Step 12: Run the full suite and both Release configs**
 
 Run: `dotnet test agent/tests/AttendanceAgent.Tests`
 Expected: all tests pass.
@@ -2714,11 +2964,11 @@ Run: `dotnet build agent/AttendanceAgent.sln -c Release` and
 `dotnet build agent/AttendanceAgent.sln -c Release -p:DeviceVendor=Zk4500`
 Expected: both succeed.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
-git add agent/src/AttendanceAgent/Services agent/src/AttendanceAgent/StartupGuards.cs agent/src/AttendanceAgent/HostComposition.cs agent/src/AttendanceAgent/Devices/Zk/ZkFingerprintEnroller.cs agent/README.md agent/tests/AttendanceAgent.Tests/EnrollmentServiceTests.cs agent/tests/AttendanceAgent.Tests/StartupGuardsTests.cs agent/tests/AttendanceAgent.Tests/HostCompositionTests.cs
-git commit -m "fix: reject empty enrollment templates, extend hardware guards to the enroller, cache templates locally after enrollment"
+git add agent/src/AttendanceAgent/Services agent/src/AttendanceAgent/StartupGuards.cs agent/src/AttendanceAgent/HostComposition.cs agent/src/AttendanceAgent/Devices/Zk/ZkFingerprintEnroller.cs agent/src/AttendanceAgent/ViewModels/MainViewModel.cs agent/src/AttendanceAgent/MainWindow.xaml agent/README.md agent/tests/AttendanceAgent.Tests/EnrollmentServiceTests.cs agent/tests/AttendanceAgent.Tests/StartupGuardsTests.cs agent/tests/AttendanceAgent.Tests/HostCompositionTests.cs agent/tests/AttendanceAgent.Tests/MainViewModelTests.cs agent/tests/AttendanceAgent.Tests/FakeCaptureService.cs
+git commit -m "fix: reject empty enrollment templates, extend hardware guards to the enroller, cache templates locally after enrollment, add an always-available exit from admin mode"
 ```
 
 ---
