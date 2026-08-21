@@ -54,6 +54,8 @@ public static class HostComposition
         services.AddScoped<ITemplateCacheService, TemplateCacheService>();
         services.AddScoped<IPunchQueueService, PunchQueueService>();
         services.AddScoped<IPunchCaptureService, PunchCaptureService>();
+        services.AddScoped<IEnrollmentService, EnrollmentService>();
+        services.AddSingleton<IAdminCredentialPrompt, InputBoxAdminCredentialPrompt>();
         // Debug builds use the hardware-free fakes so local development doesn't need a physical
         // scanner attached. Release builds register the real SecuGen SDK classes — this is the
         // registration StartupGuards.AssertNoFakeHardwareInRelease (see App.xaml.cs) checks at
@@ -62,6 +64,7 @@ public static class HostComposition
 #if DEBUG
         services.AddSingleton<IFingerprintDevice, FakeFingerprintDevice>();
         services.AddSingleton<IFingerprintVerifier, FakeFingerprintVerifier>();
+        services.AddSingleton<IFingerprintEnroller, FakeFingerprintEnroller>();
 #elif DEVICE_VENDOR_ZK4500
         services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.Zk.ZkFingerprintDevice>();
         services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.Zk.ZkFingerprintVerifier>();

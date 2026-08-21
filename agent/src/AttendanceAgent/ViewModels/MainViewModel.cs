@@ -1,3 +1,5 @@
+using System.Windows;
+using AttendanceAgent.Api;
 using AttendanceAgent.Devices;
 using AttendanceAgent.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -8,7 +10,11 @@ namespace AttendanceAgent.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly IPunchCaptureService _captureService;
+    private readonly IEnrollmentService _enrollmentService;
+    private readonly IBackendApiClient _api;
     private readonly IFingerprintDevice _device;
+    private readonly IFingerprintEnroller _enroller;
+    private readonly IAdminCredentialPrompt _prompt;
 
     [ObservableProperty]
     private string employeeCode = "";
@@ -16,10 +22,32 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string statusMessage = "";
 
-    public MainViewModel(IPunchCaptureService captureService, IFingerprintDevice device)
+    [ObservableProperty]
+    private string enrollEmployeeCode = "";
+
+    [ObservableProperty]
+    private string enrollProgressMessage = "";
+
+    [ObservableProperty]
+    private Visibility punchPanelVisibility = Visibility.Visible;
+
+    [ObservableProperty]
+    private Visibility enrollPanelVisibility = Visibility.Collapsed;
+
+    public MainViewModel(
+        IPunchCaptureService captureService,
+        IEnrollmentService enrollmentService,
+        IBackendApiClient api,
+        IFingerprintDevice device,
+        IFingerprintEnroller enroller,
+        IAdminCredentialPrompt prompt)
     {
         _captureService = captureService;
+        _enrollmentService = enrollmentService;
+        _api = api;
         _device = device;
+        _enroller = enroller;
+        _prompt = prompt;
     }
 
     [RelayCommand]
@@ -28,5 +56,48 @@ public partial class MainViewModel : ObservableObject
         var result = await _captureService.CapturePunchAsync(EmployeeCode, punchType, _device);
         StatusMessage = result.Message;
         if (result.Success) EmployeeCode = "";
+    }
+
+    [RelayCommand]
+    private async Task AdminLoginAsync()
+    {
+        var credentials = _prompt.PromptForCredentials();
+        if (credentials is null) return;
+
+        var login = await _api.LoginAsync(credentials.Value.Email, credentials.Value.Password);
+        if (login is null || login.Role != "TenantAdmin")
+        {
+            StatusMessage = "Admin login failed.";
+            return;
+        }
+
+        StatusMessage = "";
+        PunchPanelVisibility = Visibility.Collapsed;
+        EnrollPanelVisibility = Visibility.Visible;
+    }
+
+    [RelayCommand]
+    private async Task StartEnrollmentAsync()
+    {
+        var result = await _enrollmentService.EnrollAsync(
+            EnrollEmployeeCode,
+            _device,
+            _enroller,
+            (i, total) => EnrollProgressMessage = $"Place your finger ({i} of {total})");
+
+        StatusMessage = result.Message;
+        EnrollEmployeeCode = "";
+        EnrollProgressMessage = "";
+        PunchPanelVisibility = Visibility.Visible;
+        EnrollPanelVisibility = Visibility.Collapsed;
+    }
+
+    [RelayCommand]
+    private void CancelEnrollment()
+    {
+        EnrollEmployeeCode = "";
+        EnrollProgressMessage = "";
+        PunchPanelVisibility = Visibility.Visible;
+        EnrollPanelVisibility = Visibility.Collapsed;
     }
 }
