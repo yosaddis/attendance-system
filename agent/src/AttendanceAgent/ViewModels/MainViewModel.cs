@@ -45,6 +45,7 @@ public partial class MainViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(PunchCommand))]
     [NotifyCanExecuteChangedFor(nameof(StartEnrollmentCommand))]
     [NotifyCanExecuteChangedFor(nameof(ExitAdminModeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(AdminLoginCommand))]
     private bool isDeviceBusy;
 
     public MainViewModel(
@@ -98,10 +99,25 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    // Gated on CanUseDevice for the same reason PunchCommand/StartEnrollmentCommand are: without
+    // this, an admin login completing while a punch is genuinely in-flight unconditionally flips
+    // the panels, momentarily unlocking the Enroll panel with every one of its buttons disabled
+    // (StartEnrollmentCommand/ExitAdminModeCommand both also gate on CanUseDevice) until the
+    // punch finishes — the operator sees a station that looks unlocked but does nothing.
+    [RelayCommand(CanExecute = nameof(CanUseDevice))]
     private async Task AdminLoginAsync()
     {
-        var credentials = _prompt.PromptForCredentials();
+        (string Email, string Password)? credentials;
+        try
+        {
+            credentials = _prompt.PromptForCredentials();
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not show the admin login prompt: {ex.Message}";
+            return;
+        }
+
         if (credentials is null) return;
 
         var login = await _api.LoginAsync(credentials.Value.Email, credentials.Value.Password);

@@ -24,7 +24,20 @@ public class EnrollmentService : IEnrollmentService
         Action<int, int> onCaptureProgress,
         CancellationToken ct = default)
     {
-        var employee = await _employees.ResolveAsync(employeeCode, ct);
+        Api.EmployeeLookupResult? employee;
+        try
+        {
+            employee = await _employees.ResolveAsync(employeeCode, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return new EnrollmentResult(false, "Enrollment cancelled.");
+        }
+        catch (Exception ex)
+        {
+            return new EnrollmentResult(false, $"Failed to look up employee code '{employeeCode}': {ex.Message}");
+        }
+
         if (employee is null)
             return new EnrollmentResult(false, $"Employee code '{employeeCode}' not recognized.");
 
@@ -77,7 +90,20 @@ public class EnrollmentService : IEnrollmentService
             // method originally did) meant a cancelled enrollment could skip calling Release()
             // entirely, leaving the device open with the handle still held. Cleanup is not
             // cancellable.
-            await Task.Run(() => device.Release(), CancellationToken.None);
+            //
+            // Wrapped in its own try/catch because an exception thrown from a finally block
+            // REPLACES whatever the try/catch above was about to return — a capture failure
+            // ("Fingerprint capture failed: sensor timeout") would otherwise be silently
+            // discarded and replaced by a release error instead.
+            try
+            {
+                await Task.Run(() => device.Release(), CancellationToken.None);
+            }
+            catch
+            {
+                // The try/catch above already produced the real result for this method to
+                // return; a failure releasing the device doesn't change that verdict.
+            }
         }
 
         byte[] merged;
@@ -124,7 +150,24 @@ public class EnrollmentService : IEnrollmentService
         // populates TemplateCacheService's local cache (TemplateCacheService.GetTemplateAsync
         // only caches on a successful FETCH, not on enrollment) — surprising on a kiosk built
         // around offline tolerance for punches. Caching immediately here closes that gap.
-        await _templates.CacheTemplateAsync(employee.EmployeeId, merged, ct);
+        //
+        // The upload above already succeeded — the enrollment IS complete server-side — so
+        // NOTHING that can go wrong here (a locked agent.db, a full disk, or even a Cancel
+        // click landing at this exact moment) should be reported as an enrollment failure; that
+        // would send the operator to re-enroll a finger that's already correctly stored.
+        // Swallow every outcome, including cancellation — the employee will still punch
+        // successfully the moment an online punch (or the next sync) repopulates the cache.
+        try
+        {
+            await _templates.CacheTemplateAsync(employee.EmployeeId, merged, ct);
+        }
+        catch
+        {
+            // Logged nowhere yet — EnrollmentService has no ILogger today. Not adding one just
+            // for this: the upload already succeeded, so there is nothing actionable to report
+            // beyond what a future ILogger addition to this class would carry.
+        }
+
         return new EnrollmentResult(true, $"Fingerprint enrolled for {employee.Name}.");
     }
 }

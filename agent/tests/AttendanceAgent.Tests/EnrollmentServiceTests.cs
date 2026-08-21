@@ -236,4 +236,85 @@ public class EnrollmentServiceTests
         // A cancelled enrollment must not upload anything — the whole point of Cancel.
         Assert.Null(api.LastEnrolledTemplate);
     }
+
+    [Fact]
+    public async Task EnrollAsync_CancelledBeforeEmployeeLookupCompletes_ReturnsCancelledMessage_DoesNotEscape()
+    {
+        // A whole-branch re-review found _employees.ResolveAsync(employeeCode, ct) was the only
+        // unguarded collaborator call in this method: EmployeeDirectoryService.ResolveAsync's own
+        // catch deliberately re-throws on cancellation (catch (Exception ex) when
+        // (!ct.IsCancellationRequested)), and nothing here caught it — an
+        // OperationCanceledException from the cache-upsert EF query would have escaped all the way
+        // to the WPF dispatcher, exactly like the original C1 crash.
+        using var db = TestDb.CreateInMemory();
+        var employeeId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate") };
+        var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var result = await service.EnrollAsync("E002", new FakeFingerprintDevice(), new FakeFingerprintEnroller(), (_, _) => { }, cts.Token);
+
+        Assert.False(result.Success);
+        Assert.Equal("Enrollment cancelled.", result.Message);
+    }
+
+    [Fact]
+    public async Task EnrollAsync_TemplateCacheThrowsAfterSuccessfulUpload_StillReturnsSuccess()
+    {
+        // The upload already succeeded server-side by this point — a failure populating the
+        // LOCAL cache (a locked agent.db, a full disk) must not be reported as an enrollment
+        // failure, or the operator would re-enroll a finger that's already correctly stored.
+        using var db = TestDb.CreateInMemory();
+        var employeeId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate") };
+        var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+        var service = new EnrollmentService(employees, api, new ThrowingTemplateCacheService());
+        var device = new FakeFingerprintDevice { NextEnrollmentCapture = new byte[] { 1 } };
+        var enroller = new FakeFingerprintEnroller { MergedResult = new byte[] { 9, 9, 9 } };
+
+        var result = await service.EnrollAsync("E002", device, enroller, (_, _) => { });
+
+        Assert.True(result.Success);
+        Assert.Equal(employeeId, api.LastEnrolledTemplate!.Value.EmployeeId);
+    }
+
+    [Fact]
+    public async Task EnrollAsync_ReleaseThrows_DoesNotMaskTheCaptureFailureMessage()
+    {
+        // An exception thrown from a finally block REPLACES whatever the try/catch above it was
+        // about to return — without its own try/catch, a capture failure ("Fingerprint capture
+        // failed: ...") would be silently discarded and replaced by a release error instead.
+        using var db = TestDb.CreateInMemory();
+        var employeeId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate") };
+        var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
+        var device = new ThrowOnReleaseFakeFingerprintDevice();
+
+        var result = await service.EnrollAsync("E002", device, new FakeFingerprintEnroller(), (_, _) => { });
+
+        Assert.False(result.Success);
+        Assert.Contains("Fingerprint capture failed", result.Message);
+    }
+}
+
+file sealed class ThrowingTemplateCacheService : ITemplateCacheService
+{
+    public Task<byte[]?> GetTemplateAsync(Guid employeeId, CancellationToken ct = default) =>
+        throw new NotSupportedException("Not used by this test.");
+
+    public Task CacheTemplateAsync(Guid employeeId, byte[] templateData, CancellationToken ct = default) =>
+        throw new InvalidOperationException("Simulated local cache failure (e.g. a locked agent.db).");
+}
+
+file sealed class ThrowOnReleaseFakeFingerprintDevice : IFingerprintDevice
+{
+    public void Acquire() { }
+    public byte[] Capture() => throw new NotSupportedException("Not used by enrollment.");
+    public byte[] CaptureForEnrollment() => throw new InvalidOperationException("No finger detected");
+    public void Release() => throw new InvalidOperationException("Simulated release failure.");
 }

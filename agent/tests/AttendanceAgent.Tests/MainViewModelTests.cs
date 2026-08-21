@@ -255,4 +255,38 @@ public class MainViewModelTests
 
         Assert.True(vm.ExitAdminModeCommand.CanExecute(null));
     }
+
+    [Fact]
+    public async Task AdminLogin_IsGatedByCanUseDevice_DisabledWhileAPunchIsInFlight()
+    {
+        // A whole-branch re-review found AdminLoginCommand had no CanExecute gate at all: an
+        // admin login completing while a punch was in-flight unconditionally unlocked the Enroll
+        // panel, whose buttons (StartEnrollmentCommand/ExitAdminModeCommand) were all still
+        // disabled by CanUseDevice — a station that visually looks unlocked but does nothing.
+        var pending = new TaskCompletionSource<PunchResult>();
+        var capture = new FakeCaptureService { PendingCompletion = pending };
+        var vm = new MainViewModel(capture, new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        vm.EmployeeCode = "E001";
+
+        var punchTask = vm.PunchCommand.ExecuteAsync("In");
+
+        Assert.False(vm.AdminLoginCommand.CanExecute(null));
+
+        pending.SetResult(new PunchResult(true, "Punch recorded for Jane Doe."));
+        await punchTask;
+
+        Assert.True(vm.AdminLoginCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task AdminLogin_PromptThrows_ReturnsFailureMessage_DoesNotEscape()
+    {
+        var prompt = new FakeAdminCredentialPrompt { ThrowOnPrompt = true };
+        var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+
+        await vm.AdminLoginCommand.ExecuteAsync(null);
+
+        Assert.Contains("Could not show the admin login prompt", vm.StatusMessage);
+        Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
+    }
 }

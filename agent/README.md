@@ -11,7 +11,13 @@
 3. Enter an employee code and press a punch button. The first punch for
    a given employee requires connectivity (to resolve the code and fetch
    their template); after that, punches work offline and sync
-   automatically every 30 seconds once connectivity returns.
+   automatically every 30 seconds once connectivity returns. The one
+   exception: an employee enrolled on THIS station via the admin-gated
+   Enroll panel already has both their employee record and template
+   cached locally by the time enrollment completes, so their first punch
+   works offline too — connectivity is only required the first time a
+   station encounters an employee it has never seen (enrolled elsewhere,
+   or not yet cached).
 
 ## Running tests
 
@@ -26,8 +32,9 @@ or backend server is required.
 ### SecuGen
 
 SecuGen SDK integration is wired in (`SecuGenFingerprintDevice`,
-`SecuGenFingerprintVerifier`, Release builds only — Debug still uses the
-fakes for hardware-free local development). The following still requires
+`SecuGenFingerprintVerifier`, `SecuGenFingerprintEnroller`, Release builds
+only — Debug still uses the fakes for hardware-free local development).
+The following still requires
 a physical SecuGen device (Hamster Plus or compatible FDx-family reader)
 and cannot be automated:
 
@@ -73,7 +80,8 @@ and cannot be automated:
 ### ZK4500
 
 A tenant configured for the `Zk4500` vendor can use the ZKFinger SDK
-integration (`ZkFingerprintDevice`, `ZkFingerprintVerifier`, built via
+integration (`ZkFingerprintDevice`, `ZkFingerprintVerifier`,
+`ZkFingerprintEnroller`, built via
 `dotnet build agent/AttendanceAgent.sln -c Release -p:DeviceVendor=Zk4500`).
 Debug builds always use the fakes regardless of `DeviceVendor`. The
 following still requires a physical ZK4500-class device and cannot be
@@ -123,30 +131,45 @@ automated:
     `AcquireFingerprint`-backed `Capture()` used for punches. Confirm this assumption holds
     in practice — if a future SDK version or device firmware introduces a
     purpose-distinguishing capture mode, this would need revisiting.
-12. **Merged-template buffer size.** `ZkFingerprintEnroller`'s `DBMerge` output buffer is sized
-    at 2048 bytes — the same constant used for a single-capture template
-    (`ZkFingerprintDevice.TemplateBufferSize`), but with no hardware confirmation that a
-    *merged, 3-sample* registration template actually fits in that size on this device. If a
-    real merge ever needed more space, the failure mode depends on how the native marshaling
-    handles an undersized output buffer — confirm real merged-template sizes against hardware
-    before relying on this constant.
+12. **Merged-template buffer size.** `ZkFingerprintEnroller` declares its own
+    `MergedTemplateBufferSize = 2048`, a SEPARATE constant from
+    `ZkFingerprintDevice.TemplateBufferSize` (also 2048 today, but the two can silently
+    drift — changing one does not change the other). Neither has hardware confirmation
+    that a *merged, 3-sample* registration template actually fits in 2048 bytes on this
+    device. If a real merge ever needed more space, the failure mode depends on how the
+    native marshaling handles an undersized output buffer — confirm real merged-template
+    sizes against hardware before relying on either constant, and confirm they stay
+    fitting for purpose (a difference between "single capture" and "merged template" size
+    requirements is realistic, not just a formatting nitpick) if either is ever changed.
 
 **Known risk, not yet mitigated:** `zkfp2.DBMatch` (called from
 `ZkFingerprintVerifier.Verify`) crashed the entire agent process with an
 uncatchable `AccessViolationException` when given 2048 bytes of random
 template data in place of a real template — confirmed against the real
 native library, not simulated. `.NET` cannot safely catch or recover from
-this; the whole kiosk process dies and needs an external restart. A
-length/null check before the call would NOT have prevented this specific
-crash (the random data was already a valid-length 2048-byte array), so no
-defensive check was added — a check that doesn't stop the actual failure
-mode would be false confidence. Realistic trigger: a stored template that
+this; the whole kiosk process dies and needs an external restart. The
+enrollment path added since this was first documented has a SECOND,
+equally uncatchable entry point into the same native library:
+`ZkFingerprintEnroller.MergeCaptures`'s `zkfp2.DBMerge` call has no
+pre-call validation either — lower exposure (its inputs are strictly
+device-produced captures, never data read back from storage or the
+network), but `EnrollmentService.EnrollAsync`'s
+`catch (Exception ex) { ... "Failed to build enrollment template" ... }`
+around that call CANNOT catch a native `AccessViolationException`, so the
+enrollment path reads as failure-tolerant around a call whose worst
+failure mode still kills the kiosk process exactly like `DBMatch`'s does.
+A length/null check before either call would NOT have prevented the
+`DBMatch` crash that was actually reproduced (the random data was already
+a valid-length 2048-byte array), so no defensive check was added for
+either — a check that doesn't stop the actual failure mode would be false
+confidence. Realistic trigger for `DBMatch`: a stored template that
 is corrupted in transit/storage, or a mismatch between a tenant's
 configured `deviceVendor` and what a station actually captures with (see
 open item 4 above and the `DeviceVendor` MSBuild property — nothing
 today cross-checks that a station's compiled vendor matches the
 templates its employees actually enrolled with). Properly closing this
 gap needs either vendor-documented template format validation (not
-available in this SDK's docs) or moving the match call out-of-process so
-a crash there can't take the whole kiosk down — both are bigger than this
+available in this SDK's docs) or moving BOTH the match call and the merge
+call out-of-process so a crash in either can't take the whole kiosk down
+— bigger than this
 integration task's scope and are tracked as follow-up work.
