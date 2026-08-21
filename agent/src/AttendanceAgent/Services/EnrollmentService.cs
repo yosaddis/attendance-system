@@ -8,11 +8,13 @@ public class EnrollmentService : IEnrollmentService
 
     private readonly IEmployeeDirectoryService _employees;
     private readonly Api.IBackendApiClient _api;
+    private readonly ITemplateCacheService _templates;
 
-    public EnrollmentService(IEmployeeDirectoryService employees, Api.IBackendApiClient api)
+    public EnrollmentService(IEmployeeDirectoryService employees, Api.IBackendApiClient api, ITemplateCacheService templates)
     {
         _employees = employees;
         _api = api;
+        _templates = templates;
     }
 
     public async Task<EnrollmentResult> EnrollAsync(
@@ -34,6 +36,10 @@ public class EnrollmentService : IEnrollmentService
         try
         {
             await Task.Run(() => device.Acquire(), ct);
+        }
+        catch (OperationCanceledException)
+        {
+            return new EnrollmentResult(false, "Enrollment cancelled.");
         }
         catch (Exception ex)
         {
@@ -79,14 +85,42 @@ public class EnrollmentService : IEnrollmentService
         {
             merged = await Task.Run(() => enroller.MergeCaptures(rawCaptures), ct);
         }
+        catch (OperationCanceledException)
+        {
+            return new EnrollmentResult(false, "Enrollment cancelled.");
+        }
         catch (Exception ex)
         {
             return new EnrollmentResult(false, $"Failed to build enrollment template: {ex.Message}");
         }
 
-        var uploaded = await _api.EnrollTemplateAsync(employee.EmployeeId, merged, ct);
-        return uploaded
-            ? new EnrollmentResult(true, $"Fingerprint enrolled for {employee.Name}.")
-            : new EnrollmentResult(false, "Failed to upload the enrolled template to the backend.");
+        // A Debug build's FakeFingerprintEnroller defaults MergedResult to Array.Empty<byte>() —
+        // without this check, pointing a Debug build at a shared dev/staging backend and clicking
+        // through the enrollment UI would upload a genuinely empty template and destructively
+        // overwrite whatever real template that employee already had (the backend upserts with
+        // no size floor). A real vendor enroller should never legitimately produce an empty
+        // result either.
+        if (merged.Length == 0)
+            return new EnrollmentResult(false, "Enrollment produced an empty template — not uploading.");
+
+        bool uploaded;
+        try
+        {
+            uploaded = await _api.EnrollTemplateAsync(employee.EmployeeId, merged, ct);
+        }
+        catch (Exception ex)
+        {
+            return new EnrollmentResult(false, $"Failed to upload the enrolled template to the backend: {ex.Message}");
+        }
+
+        if (!uploaded)
+            return new EnrollmentResult(false, "Failed to upload the enrolled template to the backend.");
+
+        // Without this, a just-enrolled employee can't punch until one successful ONLINE punch
+        // populates TemplateCacheService's local cache (TemplateCacheService.GetTemplateAsync
+        // only caches on a successful FETCH, not on enrollment) — surprising on a kiosk built
+        // around offline tolerance for punches. Caching immediately here closes that gap.
+        await _templates.CacheTemplateAsync(employee.EmployeeId, merged, ct);
+        return new EnrollmentResult(true, $"Fingerprint enrolled for {employee.Name}.");
     }
 }

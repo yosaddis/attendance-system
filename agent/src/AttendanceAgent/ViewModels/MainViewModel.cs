@@ -44,6 +44,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PunchCommand))]
     [NotifyCanExecuteChangedFor(nameof(StartEnrollmentCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExitAdminModeCommand))]
     private bool isDeviceBusy;
 
     public MainViewModel(
@@ -63,6 +64,23 @@ public partial class MainViewModel : ObservableObject
     }
 
     private bool CanUseDevice() => !IsDeviceBusy;
+
+    // Without this, an admin who unlocks the Enroll panel and is called away (or simply changes
+    // their mind before clicking "Start Enrollment") leaves the station with NO reachable punch
+    // UI — the punch panel is Collapsed (WPF does not hit-test collapsed elements), and
+    // StartEnrollmentCancelCommand is only enabled while an enrollment is actually running.
+    // Reproduced live during Task 8's review: idle on the Enroll panel,
+    // StartEnrollmentCancelCommand.CanExecute(null) is false. Gated on CanUseDevice (not
+    // unconditionally enabled) so it can't be used to bypass a running enrollment — exiting
+    // while one is genuinely in flight must still go through Cancel.
+    [RelayCommand(CanExecute = nameof(CanUseDevice))]
+    private void ExitAdminMode()
+    {
+        EnrollEmployeeCode = "";
+        EnrollProgressMessage = "";
+        PunchPanelVisibility = Visibility.Visible;
+        EnrollPanelVisibility = Visibility.Collapsed;
+    }
 
     [RelayCommand(CanExecute = nameof(CanUseDevice))]
     private async Task PunchAsync(string punchType)

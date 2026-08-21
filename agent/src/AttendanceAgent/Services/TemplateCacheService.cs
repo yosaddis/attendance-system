@@ -26,7 +26,7 @@ public class TemplateCacheService : ITemplateCacheService
             var result = await _api.FetchTemplateAsync(employeeId, ct);
             if (result is not null)
             {
-                await UpsertCacheAsync(employeeId, result, ct);
+                await CacheTemplateAsync(employeeId, result, ct);
                 return result;
             }
 
@@ -59,7 +59,7 @@ public class TemplateCacheService : ITemplateCacheService
         }
     }
 
-    private async Task UpsertCacheAsync(Guid employeeId, byte[] templateData, CancellationToken ct)
+    public async Task CacheTemplateAsync(Guid employeeId, byte[] templateData, CancellationToken ct = default)
     {
         var existing = await _db.CachedTemplates.FindAsync(new object[] { employeeId }, ct);
         if (existing is null)

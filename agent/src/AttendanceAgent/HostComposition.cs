@@ -29,11 +29,11 @@ public static class HostComposition
     /// </summary>
     public static string CompiledDeviceVendor =>
 #if DEBUG
-        "Fake (Debug build: hardware-free FakeFingerprintDevice/FakeFingerprintVerifier; DeviceVendor is ignored)";
+        "Fake (Debug build: hardware-free FakeFingerprintDevice/FakeFingerprintVerifier/FakeFingerprintEnroller; DeviceVendor is ignored)";
 #elif DEVICE_VENDOR_ZK4500
-        "Zk4500 (Release build: ZkFingerprintDevice/ZkFingerprintVerifier)";
+        "Zk4500 (Release build: ZkFingerprintDevice/ZkFingerprintVerifier/ZkFingerprintEnroller)";
 #else
-        "SecuGen (Release build: SecuGenFingerprintDevice/SecuGenFingerprintVerifier)";
+        "SecuGen (Release build: SecuGenFingerprintDevice/SecuGenFingerprintVerifier/SecuGenFingerprintEnroller)";
 #endif
 
     public static IHostBuilder CreateHostBuilder(string dbPath, TimeSpan? syncInterval = null) =>

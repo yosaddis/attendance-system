@@ -33,6 +33,14 @@ public class ZkFingerprintEnroller : IFingerprintEnroller
             if (err != zkfperrdef.ZKFP_ERR_OK)
                 throw new InvalidOperationException($"Fingerprint template merge failed (DBMerge: {err}).");
 
+            // DBMerge writes the actual merged length back through mergedLen — validate it's
+            // sane before trusting it as an Array.Copy length. A negative or over-capacity value
+            // here would otherwise surface as an unexplained ArgumentException from Array.Copy
+            // rather than a diagnosable message naming the actual native call that produced it.
+            if (mergedLen <= 0 || mergedLen > merged.Length)
+                throw new InvalidOperationException(
+                    $"Fingerprint template merge returned an invalid length ({mergedLen}, buffer capacity {merged.Length}).");
+
             var result = new byte[mergedLen];
             Array.Copy(merged, result, mergedLen);
             return result;

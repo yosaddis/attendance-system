@@ -68,7 +68,8 @@ public class EnrollmentServiceTests
         var employeeId = Guid.NewGuid();
         var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate") };
         var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
-        var service = new EnrollmentService(employees, api);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
         var captureQueue = new Queue<byte[]>(new[] { new byte[] { 1 }, new byte[] { 2 }, new byte[] { 3 } });
         var enroller = new FakeFingerprintEnroller { MergedResult = new byte[] { 9, 9, 9 } };
         var progressCalls = new List<(int, int)>();
@@ -92,7 +93,8 @@ public class EnrollmentServiceTests
         using var db = TestDb.CreateInMemory();
         var api = new FakeBackendApiClient();
         var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
-        var service = new EnrollmentService(employees, api);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
         var device = new FakeFingerprintDevice();
 
         var result = await service.EnrollAsync("NOPE", device, new FakeFingerprintEnroller(), (_, _) => { });
@@ -110,7 +112,8 @@ public class EnrollmentServiceTests
         var employeeId = Guid.NewGuid();
         var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate") };
         var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
-        var service = new EnrollmentService(employees, api);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
         var device = new FakeFingerprintDevice { ThrowOnCaptureForEnrollment = true };
 
         var result = await service.EnrollAsync("E002", device, new FakeFingerprintEnroller(), (_, _) => { });
@@ -127,7 +130,8 @@ public class EnrollmentServiceTests
         var employeeId = Guid.NewGuid();
         var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate") };
         var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
-        var service = new EnrollmentService(employees, api);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
         var device = new FakeFingerprintDevice { NextEnrollmentCapture = new byte[] { 1 } };
         var enroller = new FakeFingerprintEnroller { ThrowOnMerge = true };
 
@@ -148,7 +152,46 @@ public class EnrollmentServiceTests
             EnrollTemplateResult = false,
         };
         var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
-        var service = new EnrollmentService(employees, api);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
+        var device = new FakeFingerprintDevice { NextEnrollmentCapture = new byte[] { 1 } };
+
+        var result = await service.EnrollAsync("E002", device, new FakeFingerprintEnroller(), (_, _) => { });
+
+        Assert.False(result.Success);
+    }
+
+    [Fact]
+    public async Task EnrollAsync_EmptyMergedTemplate_FailsWithoutUploading()
+    {
+        using var db = TestDb.CreateInMemory();
+        var employeeId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate") };
+        var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
+        var device = new FakeFingerprintDevice { NextEnrollmentCapture = new byte[] { 1 } };
+        var enroller = new FakeFingerprintEnroller { MergedResult = Array.Empty<byte>() };
+
+        var result = await service.EnrollAsync("E002", device, enroller, (_, _) => { });
+
+        Assert.False(result.Success);
+        Assert.Null(api.LastEnrolledTemplate);
+    }
+
+    [Fact]
+    public async Task EnrollAsync_UploadFailure_ReturnsFailureMessage_CoveringTheGapThatLetC1Survive()
+    {
+        using var db = TestDb.CreateInMemory();
+        var employeeId = Guid.NewGuid();
+        var api = new FakeBackendApiClient
+        {
+            LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate"),
+            ThrowOnEnrollTemplate = true,
+        };
+        var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
         var device = new FakeFingerprintDevice { NextEnrollmentCapture = new byte[] { 1 } };
 
         var result = await service.EnrollAsync("E002", device, new FakeFingerprintEnroller(), (_, _) => { });
@@ -171,7 +214,8 @@ public class EnrollmentServiceTests
         var employeeId = Guid.NewGuid();
         var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(employeeId, "E002", "Yoseph Addisu Abate") };
         var employees = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
-        var service = new EnrollmentService(employees, api);
+        var templates = new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance);
+        var service = new EnrollmentService(employees, api, templates);
         using var cts = new CancellationTokenSource();
         var device = new SelfCancellingFakeFingerprintDevice(cts);
 

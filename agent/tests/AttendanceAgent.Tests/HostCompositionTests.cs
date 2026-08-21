@@ -98,4 +98,18 @@ public class HostCompositionTests
         Assert.Contains("SecuGen", vendor);
 #endif
     }
+
+    [Fact]
+    public void CompiledDeviceVendor_MentionsTheEnroller()
+    {
+        var vendor = HostComposition.CompiledDeviceVendor;
+
+#if DEBUG
+        Assert.Contains("FakeFingerprintEnroller", vendor);
+#elif DEVICE_VENDOR_ZK4500
+        Assert.Contains("ZkFingerprintEnroller", vendor);
+#else
+        Assert.Contains("SecuGenFingerprintEnroller", vendor);
+#endif
+    }
 }

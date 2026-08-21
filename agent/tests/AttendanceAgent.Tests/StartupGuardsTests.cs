@@ -67,6 +67,10 @@ public class StartupGuardsTests
         var services = new ServiceCollection();
         services.AddSingleton<IFingerprintDevice, FakeFingerprintDevice>();
         services.AddSingleton<IFingerprintVerifier, FakeFingerprintVerifier>();
+        // The guard now resolves all three services (see AssertNoFakeHardwareInRelease), so an
+        // IFingerprintEnroller registration is required here too — otherwise resolving it would
+        // throw a DI "no service registered" error instead of exercising the guard's own logic.
+        services.AddSingleton<IFingerprintEnroller, FakeFingerprintEnroller>();
         return services.BuildServiceProvider();
     }
 
@@ -98,9 +102,25 @@ public class StartupGuardsTests
         var services = new ServiceCollection();
         services.AddSingleton<IFingerprintDevice, RealFingerprintDeviceStub>();
         services.AddSingleton<IFingerprintVerifier, RealFingerprintVerifierStub>();
+        services.AddSingleton<IFingerprintEnroller, RealFingerprintEnrollerStub>();
         using var provider = services.BuildServiceProvider();
 
         StartupGuards.AssertNoFakeHardwareInRelease(provider, isReleaseBuild: true);
+    }
+
+    [Fact]
+    public void AssertNoFakeHardwareInRelease_FakeEnrollerRegistered_IsReleaseBuild_Throws()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IFingerprintDevice, RealFingerprintDeviceStub>();
+        services.AddSingleton<IFingerprintVerifier, RealFingerprintVerifierStub>();
+        services.AddSingleton<IFingerprintEnroller, FakeFingerprintEnroller>();
+        using var provider = services.BuildServiceProvider();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => StartupGuards.AssertNoFakeHardwareInRelease(provider, isReleaseBuild: true));
+
+        Assert.Contains("FakeFingerprintEnroller", ex.Message);
     }
 
     /// <summary>Stand-ins for "a real hardware SDK implementation" — anything that isn't the Fake* types.</summary>
@@ -115,5 +135,10 @@ public class StartupGuardsTests
     private sealed class RealFingerprintVerifierStub : IFingerprintVerifier
     {
         public bool Verify(byte[] capturedTemplate, byte[] enrolledTemplate) => false;
+    }
+
+    private sealed class RealFingerprintEnrollerStub : IFingerprintEnroller
+    {
+        public byte[] MergeCaptures(IReadOnlyList<byte[]> rawCaptures) => Array.Empty<byte>();
     }
 }

@@ -185,4 +185,74 @@ public class MainViewModelTests
         Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
         Assert.Equal(Visibility.Collapsed, vm.EnrollPanelVisibility);
     }
+
+    [Fact]
+    public async Task PunchAndEnrollment_CannotRunConcurrently_TheOtherDirection()
+    {
+        // Task 8 proved enrollment blocks a punch; this proves the reverse — a punch in progress
+        // must also block starting an enrollment, since both share the same device instance.
+        var pending = new TaskCompletionSource<PunchResult>();
+        var capture = new FakeCaptureService { PendingCompletion = pending };
+        var vm = new MainViewModel(capture, new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        vm.EmployeeCode = "E001";
+
+        var punchTask = vm.PunchCommand.ExecuteAsync("In");
+
+        Assert.False(vm.StartEnrollmentCommand.CanExecute(null));
+
+        pending.SetResult(new PunchResult(true, "Punch recorded for Jane Doe."));
+        await punchTask;
+
+        Assert.True(vm.StartEnrollmentCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Punch_CaptureServiceThrows_StillClearsIsDeviceBusy()
+    {
+        // The "stuck busy forever" failure mode: if PunchAsync's finally didn't run, IsDeviceBusy
+        // would stay true and both PunchCommand and StartEnrollmentCommand would be permanently
+        // disabled after a single unexpected exception.
+        var capture = new FakeCaptureService { ThrowOnCapture = true };
+        var vm = new MainViewModel(capture, new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        vm.EmployeeCode = "E001";
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => vm.PunchCommand.ExecuteAsync("In"));
+
+        Assert.True(vm.PunchCommand.CanExecute("In"));
+        Assert.True(vm.StartEnrollmentCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void ExitAdminMode_WhileIdleOnEnrollPanel_ReturnsToPunchPanel()
+    {
+        var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        vm.EnrollEmployeeCode = "E002";
+        vm.PunchPanelVisibility = Visibility.Collapsed;
+        vm.EnrollPanelVisibility = Visibility.Visible;
+
+        Assert.True(vm.ExitAdminModeCommand.CanExecute(null));
+        vm.ExitAdminModeCommand.Execute(null);
+
+        Assert.Equal("", vm.EnrollEmployeeCode);
+        Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
+        Assert.Equal(Visibility.Collapsed, vm.EnrollPanelVisibility);
+    }
+
+    [Fact]
+    public async Task ExitAdminMode_WhileEnrollmentRunning_IsDisabled()
+    {
+        var pending = new TaskCompletionSource<EnrollmentResult>();
+        var enrollment = new FakeEnrollmentService { PendingCompletion = pending };
+        var vm = new MainViewModel(new FakeCaptureService(), enrollment, new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        vm.EnrollEmployeeCode = "E002";
+
+        var enrollTask = vm.StartEnrollmentCommand.ExecuteAsync(null);
+
+        Assert.False(vm.ExitAdminModeCommand.CanExecute(null));
+
+        pending.SetResult(new EnrollmentResult(true, "Fingerprint enrolled for Yoseph Addisu Abate."));
+        await enrollTask;
+
+        Assert.True(vm.ExitAdminModeCommand.CanExecute(null));
+    }
 }

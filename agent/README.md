@@ -57,6 +57,18 @@ and cannot be automated:
    at a time via `CreateTemplate`. Confirm against real hardware that three genuine
    placements of the same finger fold into a template that later verifies correctly through
    the existing punch flow.
+8. **Admin password entered in cleartext.** `InputBoxAdminCredentialPrompt` uses
+   `Microsoft.VisualBasic.Interaction.InputBox`, which cannot mask input — the web portal admin
+   password is visible on a shared kiosk screen while being typed. Accepted for now (matches the
+   existing precedent of `App.xaml.cs`'s first-run station-key prompt using the same InputBox
+   mechanism), but a real deployment should replace this with a masked-input WPF dialog.
+9. **SecuGen sample count per `Enroll()` call is unmeasured.** Reflection over
+   `SecuBSPMx.NET.dll` shows `BSPInitInfo` carries a `SamplesPerFinger` field distinct from the
+   `Capture(FIRPurpose.VERIFY)` path's settings — `Enroll("")` may require more than one physical
+   placement per call. If so, the UI's "Place your finger (1 of 3)" progress text would
+   undercount how many times a real SecuGen device expects a finger presented for a SINGLE one
+   of those three `Enroll()` calls. Needs measurement against a real SecuGen device (unavailable
+   during this branch's review) before relying on the current progress text being accurate.
 
 ### ZK4500
 
