@@ -8,8 +8,10 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { backendFetch } from "@/lib/backendFetch";
 import AttendancePage from "./page";
 
+const GMT_PLUS_3_MS = 3 * 60 * 60 * 1000;
+
 function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Date(Date.now() + GMT_PLUS_3_MS).toISOString().slice(0, 10);
 }
 
 describe("AttendancePage", () => {

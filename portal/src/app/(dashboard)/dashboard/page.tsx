@@ -1,15 +1,10 @@
 import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
+import { todayIsoDateTenant } from "@/lib/tenantTime";
 import type { AttendanceSummaryResponse } from "@/lib/types";
 
-const GMT_PLUS_3_MS = 3 * 60 * 60 * 1000;
-
-function todayIsoDateGmtPlus3(): string {
-  return new Date(Date.now() + GMT_PLUS_3_MS).toISOString().slice(0, 10);
-}
-
 export default async function DashboardPage() {
-  const date = todayIsoDateGmtPlus3();
+  const date = todayIsoDateTenant();
   const summary: AttendanceSummaryResponse = await backendFetch(`/api/attendance/summary?date=${date}`, {
     token: await getToken(),
   });

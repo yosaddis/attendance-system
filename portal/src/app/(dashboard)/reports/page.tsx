@@ -1,15 +1,11 @@
 import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
+import { formatTenantTime, todayIsoDateTenant } from "@/lib/tenantTime";
 import type { AttendanceRowResponse, ShiftResponse } from "@/lib/types";
 import { DateRangeNav } from "./DateRangeNav";
 import { Badge } from "../Badge";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const GMT_PLUS_3_MS = 3 * 60 * 60 * 1000;
-
-function todayIsoDateGmtPlus3(): string {
-  return new Date(Date.now() + GMT_PLUS_3_MS).toISOString().slice(0, 10);
-}
 
 function isValidIsoDate(candidate: string): boolean {
   const asDate = new Date(`${candidate}T00:00:00Z`);
@@ -18,7 +14,7 @@ function isValidIsoDate(candidate: string): boolean {
 }
 
 function defaultRange(): { from: string; to: string } {
-  const to = todayIsoDateGmtPlus3();
+  const to = todayIsoDateTenant();
   const from = new Date(new Date(`${to}T00:00:00Z`).getTime() - 6 * 24 * 60 * 60 * 1000)
     .toISOString()
     .slice(0, 10);
@@ -78,8 +74,8 @@ export default async function ReportsPage({
                 <td className="py-3 px-4">{row.employeeName}</td>
                 <td className="py-3 px-4">{row.date}</td>
                 <td className="py-3 px-4">{shifts.find((s) => s.id === row.shiftId)?.name ?? "—"}</td>
-                <td className="py-3 px-4">{row.firstIn ? new Date(row.firstIn).toLocaleTimeString() : "—"}</td>
-                <td className="py-3 px-4">{row.lastOut ? new Date(row.lastOut).toLocaleTimeString() : "—"}</td>
+                <td className="py-3 px-4">{row.firstIn ? formatTenantTime(row.firstIn) : "—"}</td>
+                <td className="py-3 px-4">{row.lastOut ? formatTenantTime(row.lastOut) : "—"}</td>
                 <td className="py-3 px-4">{row.workedHours !== null ? row.workedHours.toFixed(2) : "—"}</td>
                 <td className="py-3 px-4">
                   {row.isLate && <Badge>Late{row.lateMinutes !== null ? ` (${row.lateMinutes}m)` : ""}</Badge>}

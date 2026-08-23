@@ -1,14 +1,11 @@
 import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
+import { formatTenantTime, todayIsoDateTenant } from "@/lib/tenantTime";
 import type { AttendanceRowResponse, ShiftResponse } from "@/lib/types";
 import { DateNav } from "./DateNav";
 import { Badge } from "../Badge";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function isValidIsoDate(candidate: string): boolean {
   const asDate = new Date(`${candidate}T00:00:00Z`);
@@ -25,7 +22,7 @@ export default async function AttendancePage({
   const date =
     requestedDate && ISO_DATE_PATTERN.test(requestedDate) && isValidIsoDate(requestedDate)
       ? requestedDate
-      : todayIsoDate();
+      : todayIsoDateTenant();
   const token = await getToken();
   const [rows, shifts]: [AttendanceRowResponse[], ShiftResponse[]] = await Promise.all([
     backendFetch(`/api/attendance/daily?date=${date}`, { token }),
@@ -53,8 +50,8 @@ export default async function AttendancePage({
               <tr key={row.employeeId} className="border-b border-border last:border-b-0 hover:bg-surface-muted">
                 <td className="py-3 px-4">{row.employeeName}</td>
                 <td className="py-3 px-4">{shifts.find((s) => s.id === row.shiftId)?.name ?? "—"}</td>
-                <td className="py-3 px-4">{row.firstIn ? new Date(row.firstIn).toLocaleTimeString() : "—"}</td>
-                <td className="py-3 px-4">{row.lastOut ? new Date(row.lastOut).toLocaleTimeString() : "—"}</td>
+                <td className="py-3 px-4">{row.firstIn ? formatTenantTime(row.firstIn) : "—"}</td>
+                <td className="py-3 px-4">{row.lastOut ? formatTenantTime(row.lastOut) : "—"}</td>
                 <td className="py-3 px-4">{row.workedHours !== null ? row.workedHours.toFixed(2) : "—"}</td>
                 <td className="py-3 px-4">
                   {row.isLate && <Badge>Late{row.lateMinutes !== null ? ` (${row.lateMinutes}m)` : ""}</Badge>}
