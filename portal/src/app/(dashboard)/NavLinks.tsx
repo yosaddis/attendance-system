@@ -8,6 +8,7 @@ const NAV_LINKS = [
   { href: "/attendance", label: "Attendance" },
   { href: "/employees", label: "Employees" },
   { href: "/shifts", label: "Shifts" },
+  { href: "/reports", label: "Reports" },
 ];
 
 export function NavLinks() {
