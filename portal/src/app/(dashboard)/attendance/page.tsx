@@ -1,6 +1,6 @@
 import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
-import type { AttendanceRowResponse } from "@/lib/types";
+import type { AttendanceRowResponse, ShiftResponse } from "@/lib/types";
 import { DateNav } from "./DateNav";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -15,6 +15,14 @@ function isValidIsoDate(candidate: string): boolean {
   return asDate.toISOString().slice(0, 10) === candidate;
 }
 
+function Badge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-block bg-danger-bg text-danger border border-danger/20 rounded px-2 py-0.5 text-xs mr-1">
+      {children}
+    </span>
+  );
+}
+
 export default async function AttendancePage({
   searchParams,
 }: {
@@ -25,9 +33,11 @@ export default async function AttendancePage({
     requestedDate && ISO_DATE_PATTERN.test(requestedDate) && isValidIsoDate(requestedDate)
       ? requestedDate
       : todayIsoDate();
-  const rows: AttendanceRowResponse[] = await backendFetch(`/api/attendance/daily?date=${date}`, {
-    token: await getToken(),
-  });
+  const token = await getToken();
+  const [rows, shifts]: [AttendanceRowResponse[], ShiftResponse[]] = await Promise.all([
+    backendFetch(`/api/attendance/daily?date=${date}`, { token }),
+    backendFetch("/api/shifts", { token }),
+  ]);
 
   return (
     <div className="p-6 space-y-6">
@@ -38,16 +48,26 @@ export default async function AttendancePage({
           <thead>
             <tr className="text-left bg-surface-muted text-ink">
               <th className="py-3 px-4 font-medium">Employee</th>
+              <th className="py-3 px-4 font-medium">Shift</th>
               <th className="py-3 px-4 font-medium">First In</th>
               <th className="py-3 px-4 font-medium">Last Out</th>
+              <th className="py-3 px-4 font-medium">Worked Hours</th>
+              <th className="py-3 px-4 font-medium">Flags</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.employeeId} className="border-b border-border last:border-b-0 hover:bg-surface-muted">
                 <td className="py-3 px-4">{row.employeeName}</td>
+                <td className="py-3 px-4">{shifts.find((s) => s.id === row.shiftId)?.name ?? "—"}</td>
                 <td className="py-3 px-4">{row.firstIn ? new Date(row.firstIn).toLocaleTimeString() : "—"}</td>
                 <td className="py-3 px-4">{row.lastOut ? new Date(row.lastOut).toLocaleTimeString() : "—"}</td>
+                <td className="py-3 px-4">{row.workedHours !== null ? row.workedHours.toFixed(2) : "—"}</td>
+                <td className="py-3 px-4">
+                  {row.isLate && <Badge>Late{row.lateMinutes !== null ? ` (${row.lateMinutes}m)` : ""}</Badge>}
+                  {row.isMissingCheckout && <Badge>Missing Checkout</Badge>}
+                  {row.hasDoublePunch && <Badge>Double Punch</Badge>}
+                </td>
               </tr>
             ))}
           </tbody>
