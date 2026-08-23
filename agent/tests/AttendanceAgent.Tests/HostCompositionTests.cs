@@ -29,11 +29,15 @@ public class HostCompositionTests
         {
             try
             {
-                // WPF pack-URI resource resolution (used by MainWindow's InitializeComponent) needs
-                // an Application instance to exist on the thread.
+                // MainWindow's InitializeComponent resolves StaticResource brushes/fonts that live in
+                // Styles.xaml, which only gets merged into Application.Resources via App's own
+                // generated InitializeComponent() (the same call the real Main() makes before
+                // app.Run()). A bare `new Application()` skips that merge, so this must construct the
+                // real App type — not the base class — or StaticResource lookups in MainWindow.xaml
+                // fail here even though they work at runtime.
                 if (System.Windows.Application.Current is null)
                 {
-                    new System.Windows.Application();
+                    new App().InitializeComponent();
                 }
 
                 var dbPath = Path.Combine(Path.GetTempPath(), $"agent-host-composition-test-{Guid.NewGuid()}.db");
