@@ -99,11 +99,15 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    // Gated on CanUseDevice for the same reason PunchCommand/StartEnrollmentCommand are: without
-    // this, an admin login completing while a punch is genuinely in-flight unconditionally flips
-    // the panels, momentarily unlocking the Enroll panel with every one of its buttons disabled
-    // (StartEnrollmentCommand/ExitAdminModeCommand both also gate on CanUseDevice) until the
-    // punch finishes — the operator sees a station that looks unlocked but does nothing.
+    // Gated on CanUseDevice so a login can't be STARTED while a punch or enrollment already owns
+    // the device. This does not fully close the gap: AdminLoginAsync never sets IsDeviceBusy
+    // itself, so a punch that starts DURING an already-in-progress login's two awaits (LoginAsync,
+    // GetStationTenantIdAsync) can still land its own IsDeviceBusy=true/false around the login's
+    // unconditional panel flip below — momentarily unlocking the Enroll panel with every one of
+    // its buttons disabled (StartEnrollmentCommand/ExitAdminModeCommand both gate on CanUseDevice
+    // too) until the punch finishes. That residual ordering is benign and self-healing (the
+    // operator sees a station that looks unlocked but does nothing, for the punch's duration only)
+    // — this gate exists to prevent the more common case, not to guarantee every ordering.
     [RelayCommand(CanExecute = nameof(CanUseDevice))]
     private async Task AdminLoginAsync()
     {

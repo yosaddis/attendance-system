@@ -13,11 +13,17 @@
    their template); after that, punches work offline and sync
    automatically every 30 seconds once connectivity returns. The one
    exception: an employee enrolled on THIS station via the admin-gated
-   Enroll panel already has both their employee record and template
-   cached locally by the time enrollment completes, so their first punch
-   works offline too — connectivity is only required the first time a
-   station encounters an employee it has never seen (enrolled elsewhere,
-   or not yet cached).
+   Enroll panel normally already has both their employee record and
+   template cached locally by the time enrollment completes, so their
+   first punch usually works offline too — but this is best-effort, not
+   guaranteed: `EnrollmentService.EnrollAsync` deliberately swallows a
+   failure populating the local cache after a successful upload (so a
+   locked/full-disk `agent.db` doesn't turn a completed enrollment into a
+   reported failure), which means that specific failure leaves the
+   employee needing connectivity for their first punch after all, with
+   nothing logged today to say so. Connectivity is otherwise only
+   required the first time a station encounters an employee it has never
+   seen (enrolled elsewhere, or not yet cached).
 
 ## Running tests
 
@@ -171,5 +177,5 @@ templates its employees actually enrolled with). Properly closing this
 gap needs either vendor-documented template format validation (not
 available in this SDK's docs) or moving BOTH the match call and the merge
 call out-of-process so a crash in either can't take the whole kiosk down
-— bigger than this
-integration task's scope and are tracked as follow-up work.
+— both options are bigger than this integration task's scope and are
+tracked as follow-up work.

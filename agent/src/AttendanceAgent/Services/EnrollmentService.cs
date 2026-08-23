@@ -33,6 +33,16 @@ public class EnrollmentService : IEnrollmentService
         {
             return new EnrollmentResult(false, "Enrollment cancelled.");
         }
+        // EmployeeDirectoryService.ResolveAsync's own catch filter is `when
+        // (!ct.IsCancellationRequested)` — once ct IS cancelled, THAT filter lets ANY exception
+        // through, not just cancellation ones (e.g. a network failure racing a Cancel click).
+        // Without this second check, the operator who pressed Cancel would see a misleading
+        // "Failed to look up employee..." instead of "Enrollment cancelled." — cosmetic, but
+        // worth getting right given Cancel is the whole point of that click.
+        catch (Exception) when (ct.IsCancellationRequested)
+        {
+            return new EnrollmentResult(false, "Enrollment cancelled.");
+        }
         catch (Exception ex)
         {
             return new EnrollmentResult(false, $"Failed to look up employee code '{employeeCode}': {ex.Message}");
