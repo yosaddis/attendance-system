@@ -2,6 +2,7 @@ import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
 import type { AttendanceRowResponse, ShiftResponse } from "@/lib/types";
 import { DateNav } from "./DateNav";
+import { Badge } from "../Badge";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -13,14 +14,6 @@ function isValidIsoDate(candidate: string): boolean {
   const asDate = new Date(`${candidate}T00:00:00Z`);
   if (Number.isNaN(asDate.getTime())) return false;
   return asDate.toISOString().slice(0, 10) === candidate;
-}
-
-function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-block bg-danger-bg text-danger border border-danger/20 rounded px-2 py-0.5 text-xs mr-1">
-      {children}
-    </span>
-  );
 }
 
 export default async function AttendancePage({

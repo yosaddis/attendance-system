@@ -2,6 +2,7 @@ import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
 import type { AttendanceRowResponse, ShiftResponse } from "@/lib/types";
 import { DateRangeNav } from "./DateRangeNav";
+import { Badge } from "../Badge";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const GMT_PLUS_3_MS = 3 * 60 * 60 * 1000;
@@ -81,9 +82,9 @@ export default async function ReportsPage({
                 <td className="py-3 px-4">{row.lastOut ? new Date(row.lastOut).toLocaleTimeString() : "—"}</td>
                 <td className="py-3 px-4">{row.workedHours !== null ? row.workedHours.toFixed(2) : "—"}</td>
                 <td className="py-3 px-4">
-                  {row.isLate && <span className="text-danger text-xs mr-1">Late</span>}
-                  {row.isMissingCheckout && <span className="text-danger text-xs mr-1">Missing Checkout</span>}
-                  {row.hasDoublePunch && <span className="text-danger text-xs mr-1">Double Punch</span>}
+                  {row.isLate && <Badge>Late{row.lateMinutes !== null ? ` (${row.lateMinutes}m)` : ""}</Badge>}
+                  {row.isMissingCheckout && <Badge>Missing Checkout</Badge>}
+                  {row.hasDoublePunch && <Badge>Double Punch</Badge>}
                 </td>
               </tr>
             ))}
