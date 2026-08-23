@@ -37,3 +37,10 @@ export type LoginResult = {
   role: "Operator" | "TenantAdmin";
   tenantId: string | null;
 };
+
+export type AttendanceSummaryResponse = {
+  totalEmployeesWithShift: number;
+  presentCount: number;
+  absentCount: number;
+  lateCount: number;
+};
