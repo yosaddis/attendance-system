@@ -24,7 +24,7 @@ describe("login action", () => {
     cookieStore._store.clear();
   });
 
-  it("sets the session cookie and redirects to /attendance on success", async () => {
+  it("sets the session cookie and redirects to /dashboard on success", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -38,7 +38,7 @@ describe("login action", () => {
     await login(formData);
 
     expect(cookieStore.get(SESSION_COOKIE)?.value).toBe("jwt-abc");
-    expect(redirect).toHaveBeenCalledWith("/attendance");
+    expect(redirect).toHaveBeenCalledWith("/dashboard");
   });
 
   it("redirects to /login?error=invalid without setting a cookie on invalid credentials", async () => {

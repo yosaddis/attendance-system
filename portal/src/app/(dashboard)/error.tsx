@@ -29,8 +29,8 @@ export default function DashboardError({
         >
           Try again
         </button>
-        <Link href="/attendance" className="text-blue-600 underline">
-          Back to Attendance
+        <Link href="/dashboard" className="text-blue-600 underline">
+          Back to Dashboard
         </Link>
       </div>
     </div>

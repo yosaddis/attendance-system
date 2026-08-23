@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE } from "@/lib/constants";
 
-const PROTECTED_PREFIXES = ["/attendance", "/employees", "/shifts"];
+const PROTECTED_PREFIXES = ["/attendance", "/employees", "/shifts", "/dashboard", "/reports"];
 
 export function middleware(request: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((prefix) => request.nextUrl.pathname.startsWith(prefix));
@@ -14,5 +14,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/attendance/:path*", "/employees/:path*", "/shifts/:path*"],
+  matcher: ["/attendance/:path*", "/employees/:path*", "/shifts/:path*", "/dashboard/:path*", "/reports/:path*"],
 };
