@@ -1,3 +1,4 @@
+using System.Text;
 using AttendanceApi.Auth;
 using AttendanceApi.Data;
 using AttendanceApi.Dtos;
@@ -38,6 +39,78 @@ public class AttendanceController : ControllerBase
 
         return new AttendanceSummaryResponse(withShift.Count, present, absent, late);
     }
+
+    [HttpGet("report")]
+    public async Task<ActionResult<List<AttendanceRowResponse>>> Report([FromQuery] DateOnly from, [FromQuery] DateOnly to)
+    {
+        var validation = ValidateRange(from, to);
+        if (validation is not null) return validation;
+
+        var tenantId = User.TenantId()!.Value;
+        return await BuildReportRowsAsync(tenantId, from, to);
+    }
+
+    [HttpGet("report/export")]
+    public async Task<IActionResult> ReportExport([FromQuery] DateOnly from, [FromQuery] DateOnly to)
+    {
+        var validation = ValidateRange(from, to);
+        if (validation is not null) return validation;
+
+        var tenantId = User.TenantId()!.Value;
+        var rows = await BuildReportRowsAsync(tenantId, from, to);
+        var bytes = Encoding.UTF8.GetBytes(ToCsv(rows));
+        return File(bytes, "text/csv", $"attendance-{from:yyyy-MM-dd}-to-{to:yyyy-MM-dd}.csv");
+    }
+
+    private ActionResult? ValidateRange(DateOnly from, DateOnly to)
+    {
+        if (to < from) return BadRequest("'to' must not be before 'from'.");
+        var daysInclusive = to.DayNumber - from.DayNumber + 1;
+        if (daysInclusive > 90) return BadRequest("Date range cannot exceed 90 days.");
+        return null;
+    }
+
+    private async Task<List<AttendanceRowResponse>> BuildReportRowsAsync(Guid tenantId, DateOnly from, DateOnly to)
+    {
+        var rows = new List<AttendanceRowResponse>();
+        for (var date = from; date <= to; date = date.AddDays(1))
+        {
+            var dayRows = await BuildDailyRowsAsync(tenantId, date);
+            rows.AddRange(dayRows.Where(r => r.HasShift || r.FirstIn is not null || r.LastOut is not null));
+        }
+        return rows;
+    }
+
+    private static string ToCsv(List<AttendanceRowResponse> rows)
+    {
+        var sb = new StringBuilder();
+        sb.Append("Employee,Date,First In,Last Out,Worked Hours,Late (minutes),Missing Checkout,Double Punch\n");
+
+        var offset = AttendanceAnalysisService.DefaultTenantOffset;
+        foreach (var r in rows)
+        {
+            var fields = new[]
+            {
+                CsvEscape(r.EmployeeName),
+                r.Date.ToString("yyyy-MM-dd"),
+                r.FirstIn?.ToOffset(offset).ToString("HH:mm") ?? "",
+                r.LastOut?.ToOffset(offset).ToString("HH:mm") ?? "",
+                r.WorkedHours?.ToString("0.00") ?? "",
+                r.IsLate ? r.LateMinutes.ToString() ?? "" : "",
+                r.IsMissingCheckout ? "yes" : "",
+                r.HasDoublePunch ? "yes" : "",
+            };
+            sb.Append(string.Join(",", fields));
+            sb.Append('\n');
+        }
+
+        return sb.ToString();
+    }
+
+    private static string CsvEscape(string value) =>
+        value.Contains(',') || value.Contains('"') || value.Contains('\n')
+            ? $"\"{value.Replace("\"", "\"\"")}\""
+            : value;
 
     private async Task<List<AttendanceRowResponse>> BuildDailyRowsAsync(Guid tenantId, DateOnly date)
     {

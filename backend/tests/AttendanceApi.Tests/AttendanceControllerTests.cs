@@ -295,4 +295,89 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
         Assert.Equal(1, summary.AbsentCount); // absent
         Assert.Equal(1, summary.LateCount); // late
     }
+
+    [Fact]
+    public async Task Report_ReturnsOneRowPerEmployeePerDayInRange()
+    {
+        Guid tenantId, employeeId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = new Tenant { Name = "Acme Foods", DeviceVendor = DeviceVendor.Zk4500 };
+            var shift = new Shift { TenantId = tenant.Id, Name = "Day", StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(17, 0), GraceMinutes = 5 };
+            var employee = new Employee { TenantId = tenant.Id, EmployeeCode = "E030", Name = "Range Rita", ShiftId = shift.Id };
+            db.Tenants.Add(tenant);
+            db.Shifts.Add(shift);
+            db.Employees.Add(employee);
+            db.SaveChanges();
+            tenantId = tenant.Id;
+            employeeId = employee.Id;
+        }
+
+        var client = await TenantAdminClientAsync(tenantId);
+        var response = await client.GetAsync("/api/attendance/report?from=2026-08-20&to=2026-08-22");
+        var rows = await response.Content.ReadFromJsonAsync<List<AttendanceRowResponse>>();
+
+        // Has a shift, so every day in the 3-day range gets a row even with zero punches.
+        Assert.Equal(3, rows!.Count(r => r.EmployeeId == employeeId));
+    }
+
+    [Fact]
+    public async Task Report_ToBeforeFrom_ReturnsBadRequest()
+    {
+        var tenantId = await CreateBareTenantAsync();
+        var client = await TenantAdminClientAsync(tenantId);
+
+        var response = await client.GetAsync("/api/attendance/report?from=2026-08-22&to=2026-08-20");
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Report_RangeOverNinetyDays_ReturnsBadRequest()
+    {
+        var tenantId = await CreateBareTenantAsync();
+        var client = await TenantAdminClientAsync(tenantId);
+
+        var response = await client.GetAsync("/api/attendance/report?from=2026-01-01&to=2026-04-15"); // 105 days
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReportExport_ReturnsCsvWithHeaderRow()
+    {
+        Guid tenantId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = new Tenant { Name = "Acme Foods", DeviceVendor = DeviceVendor.Zk4500 };
+            var shift = new Shift { TenantId = tenant.Id, Name = "Day", StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(17, 0), GraceMinutes = 5 };
+            var employee = new Employee { TenantId = tenant.Id, EmployeeCode = "E031", Name = "Export Eve", ShiftId = shift.Id };
+            db.Tenants.Add(tenant);
+            db.Shifts.Add(shift);
+            db.Employees.Add(employee);
+            db.SaveChanges();
+            tenantId = tenant.Id;
+        }
+
+        var client = await TenantAdminClientAsync(tenantId);
+        var response = await client.GetAsync("/api/attendance/report/export?from=2026-08-20&to=2026-08-20");
+
+        Assert.Equal("text/csv", response.Content.Headers.ContentType!.MediaType);
+        Assert.Contains("attachment", response.Content.Headers.ContentDisposition!.DispositionType);
+        var csv = await response.Content.ReadAsStringAsync();
+        Assert.StartsWith("Employee,Date,First In,Last Out,Worked Hours,Late (minutes),Missing Checkout,Double Punch", csv);
+        Assert.Contains("Export Eve", csv);
+    }
+
+    private async Task<Guid> CreateBareTenantAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tenant = new Tenant { Name = $"Tenant {Guid.NewGuid()}", DeviceVendor = DeviceVendor.Zk4500 };
+        db.Tenants.Add(tenant);
+        db.SaveChanges();
+        return tenant.Id;
+    }
 }
