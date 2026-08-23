@@ -8,32 +8,32 @@ export default async function ShiftsPage() {
   const shifts: ShiftResponse[] = await backendFetch("/api/shifts", { token: await getToken() });
 
   return (
-    <div className="p-4 space-y-6">
-      <h1 className="text-xl font-semibold">Shifts</h1>
+    <div className="p-6 space-y-6">
+      <h1 className="font-display text-2xl text-ink">Shifts</h1>
       <ShiftForm />
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto bg-surface border border-border rounded-lg">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="text-left border-b">
-              <th className="py-2">Name</th>
-              <th>Start</th>
-              <th>End</th>
-              <th>Grace (min)</th>
-              <th>Mode</th>
-              <th></th>
+            <tr className="text-left bg-surface-muted text-ink">
+              <th className="py-3 px-4 font-medium">Name</th>
+              <th className="py-3 px-4 font-medium">Start</th>
+              <th className="py-3 px-4 font-medium">End</th>
+              <th className="py-3 px-4 font-medium">Grace (min)</th>
+              <th className="py-3 px-4 font-medium">Mode</th>
+              <th className="py-3 px-4"></th>
             </tr>
           </thead>
           <tbody>
             {shifts.map((shift) => (
-              <tr key={shift.id} className="border-b">
-                <td className="py-2">{shift.name}</td>
-                <td>{shift.startTime}</td>
-                <td>{shift.endTime}</td>
-                <td>{shift.graceMinutes}</td>
-                <td>{shift.punchMode}</td>
-                <td>
+              <tr key={shift.id} className="border-b border-border last:border-b-0 hover:bg-surface-muted">
+                <td className="py-3 px-4">{shift.name}</td>
+                <td className="py-3 px-4">{shift.startTime}</td>
+                <td className="py-3 px-4">{shift.endTime}</td>
+                <td className="py-3 px-4">{shift.graceMinutes}</td>
+                <td className="py-3 px-4">{shift.punchMode}</td>
+                <td className="py-3 px-4">
                   <form action={deleteShift.bind(null, shift.id)}>
-                    <button type="submit" className="text-red-600">
+                    <button type="submit" className="text-danger hover:underline text-sm">
                       Delete
                     </button>
                   </form>
