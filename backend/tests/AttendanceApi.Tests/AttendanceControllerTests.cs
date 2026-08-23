@@ -256,4 +256,43 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
         Assert.True(row.IsLate);
         Assert.Equal(75, row.LateMinutes);
     }
+
+    [Fact]
+    public async Task Summary_CountsPresentAbsentLate_ExcludingEmployeesWithoutAShift()
+    {
+        var day = new DateOnly(2026, 8, 15);
+
+        Guid tenantId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = new Tenant { Name = "Acme Foods", DeviceVendor = DeviceVendor.Zk4500 };
+            var shift = new Shift { TenantId = tenant.Id, Name = "Day", StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(17, 0), GraceMinutes = 5 };
+            var station = new Station { TenantId = tenant.Id, Name = "Front Desk", DeviceVendor = DeviceVendor.Zk4500, ApiKeyHash = $"hash-{Guid.NewGuid()}" };
+
+            var present = new Employee { TenantId = tenant.Id, EmployeeCode = "E020", Name = "Present Pat", ShiftId = shift.Id };
+            var absent = new Employee { TenantId = tenant.Id, EmployeeCode = "E021", Name = "Absent Al", ShiftId = shift.Id };
+            var late = new Employee { TenantId = tenant.Id, EmployeeCode = "E022", Name = "Late Larry", ShiftId = shift.Id };
+            var noShift = new Employee { TenantId = tenant.Id, EmployeeCode = "E023", Name = "No Shift Nia" };
+
+            db.Tenants.Add(tenant);
+            db.Shifts.Add(shift);
+            db.Stations.Add(station);
+            db.Employees.AddRange(present, absent, late, noShift);
+            db.Punches.AddRange(
+                new Punch { Id = Guid.NewGuid(), TenantId = tenant.Id, EmployeeId = present.Id, StationId = station.Id, PunchType = PunchType.In, Timestamp = new DateTimeOffset(day.ToDateTime(new TimeOnly(5, 0)), TimeSpan.Zero) }, // 08:00 local, on time
+                new Punch { Id = Guid.NewGuid(), TenantId = tenant.Id, EmployeeId = late.Id, StationId = station.Id, PunchType = PunchType.In, Timestamp = new DateTimeOffset(day.ToDateTime(new TimeOnly(7, 0)), TimeSpan.Zero) }); // 10:00 local, late
+            db.SaveChanges();
+            tenantId = tenant.Id;
+        }
+
+        var client = await TenantAdminClientAsync(tenantId);
+        var response = await client.GetAsync($"/api/attendance/summary?date={day:yyyy-MM-dd}");
+        var summary = await response.Content.ReadFromJsonAsync<AttendanceSummaryResponse>();
+
+        Assert.Equal(3, summary!.TotalEmployeesWithShift); // noShift excluded
+        Assert.Equal(2, summary.PresentCount); // present + late both punched in
+        Assert.Equal(1, summary.AbsentCount); // absent
+        Assert.Equal(1, summary.LateCount); // late
+    }
 }

@@ -13,3 +13,5 @@ public record AttendanceRowResponse(
     int? LateMinutes,
     bool IsMissingCheckout,
     bool HasDoublePunch);
+
+public record AttendanceSummaryResponse(int TotalEmployeesWithShift, int PresentCount, int AbsentCount, int LateCount);

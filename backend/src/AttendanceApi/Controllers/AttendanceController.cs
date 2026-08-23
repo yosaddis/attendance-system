@@ -25,6 +25,20 @@ public class AttendanceController : ControllerBase
         return await BuildDailyRowsAsync(tenantId, date);
     }
 
+    [HttpGet("summary")]
+    public async Task<ActionResult<AttendanceSummaryResponse>> Summary([FromQuery] DateOnly date)
+    {
+        var tenantId = User.TenantId()!.Value;
+        var rows = await BuildDailyRowsAsync(tenantId, date);
+        var withShift = rows.Where(r => r.HasShift).ToList();
+
+        var present = withShift.Count(r => r.FirstIn is not null);
+        var absent = withShift.Count(r => r.FirstIn is null);
+        var late = withShift.Count(r => r.IsLate);
+
+        return new AttendanceSummaryResponse(withShift.Count, present, absent, late);
+    }
+
     private async Task<List<AttendanceRowResponse>> BuildDailyRowsAsync(Guid tenantId, DateOnly date)
     {
         var offset = AttendanceAnalysisService.DefaultTenantOffset;
