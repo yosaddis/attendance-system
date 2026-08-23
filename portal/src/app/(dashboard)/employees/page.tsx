@@ -12,28 +12,28 @@ export default async function EmployeesPage() {
   ]);
 
   return (
-    <div className="p-4 space-y-6">
-      <h1 className="text-xl font-semibold">Employees</h1>
+    <div className="p-6 space-y-6">
+      <h1 className="font-display text-2xl text-ink">Employees</h1>
       <EmployeeForm shifts={shifts} />
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto bg-surface border border-border rounded-lg">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="text-left border-b">
-              <th className="py-2">Code</th>
-              <th>Name</th>
-              <th>Shift</th>
-              <th></th>
+            <tr className="text-left bg-surface-muted text-ink">
+              <th className="py-3 px-4 font-medium">Code</th>
+              <th className="py-3 px-4 font-medium">Name</th>
+              <th className="py-3 px-4 font-medium">Shift</th>
+              <th className="py-3 px-4"></th>
             </tr>
           </thead>
           <tbody>
             {employees.map((employee) => (
-              <tr key={employee.id} className="border-b">
-                <td className="py-2">{employee.employeeCode}</td>
-                <td>{employee.name}</td>
-                <td>{shifts.find((s) => s.id === employee.shiftId)?.name ?? "—"}</td>
-                <td>
+              <tr key={employee.id} className="border-b border-border last:border-b-0 hover:bg-surface-muted">
+                <td className="py-3 px-4">{employee.employeeCode}</td>
+                <td className="py-3 px-4">{employee.name}</td>
+                <td className="py-3 px-4">{shifts.find((s) => s.id === employee.shiftId)?.name ?? "—"}</td>
+                <td className="py-3 px-4">
                   <form action={deleteEmployee.bind(null, employee.id)}>
-                    <button type="submit" className="text-red-600">
+                    <button type="submit" className="text-danger hover:underline text-sm">
                       Delete
                     </button>
                   </form>
