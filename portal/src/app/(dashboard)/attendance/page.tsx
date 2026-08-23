@@ -30,24 +30,24 @@ export default async function AttendancePage({
   });
 
   return (
-    <div className="p-4 space-y-6">
-      <h1 className="text-xl font-semibold">Daily Attendance</h1>
+    <div className="p-6 space-y-6">
+      <h1 className="font-display text-2xl text-ink">Daily Attendance</h1>
       <DateNav date={date} />
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto bg-surface border border-border rounded-lg">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="text-left border-b">
-              <th className="py-2">Employee</th>
-              <th>First In</th>
-              <th>Last Out</th>
+            <tr className="text-left bg-surface-muted text-ink">
+              <th className="py-3 px-4 font-medium">Employee</th>
+              <th className="py-3 px-4 font-medium">First In</th>
+              <th className="py-3 px-4 font-medium">Last Out</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.employeeId} className="border-b">
-                <td className="py-2">{row.employeeName}</td>
-                <td>{row.firstIn ? new Date(row.firstIn).toLocaleTimeString() : "—"}</td>
-                <td>{row.lastOut ? new Date(row.lastOut).toLocaleTimeString() : "—"}</td>
+              <tr key={row.employeeId} className="border-b border-border last:border-b-0 hover:bg-surface-muted">
+                <td className="py-3 px-4">{row.employeeName}</td>
+                <td className="py-3 px-4">{row.firstIn ? new Date(row.firstIn).toLocaleTimeString() : "—"}</td>
+                <td className="py-3 px-4">{row.lastOut ? new Date(row.lastOut).toLocaleTimeString() : "—"}</td>
               </tr>
             ))}
           </tbody>
