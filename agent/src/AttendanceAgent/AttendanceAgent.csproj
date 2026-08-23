@@ -72,4 +72,9 @@
     <None Include="Vendor\SecuGen\x64\Ijwhost.dll" CopyToOutputDirectory="PreserveNewest" Link="Ijwhost.dll" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Resource Include="Fonts\*.ttf" />
+    <Resource Include="Assets\*.png" />
+  </ItemGroup>
+
 </Project>
