@@ -17,11 +17,19 @@ export type ShiftResponse = {
   allowedBreakMinutes: number | null;
 };
 
-export type DailyAttendanceResponse = {
+export type AttendanceRowResponse = {
   employeeId: string;
   employeeName: string;
+  date: string;
+  shiftId: string | null;
   firstIn: string | null;
   lastOut: string | null;
+  workedHours: number | null;
+  hasShift: boolean;
+  isLate: boolean;
+  lateMinutes: number | null;
+  isMissingCheckout: boolean;
+  hasDoublePunch: boolean;
 };
 
 export type LoginResult = {

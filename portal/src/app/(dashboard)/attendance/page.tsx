@@ -1,6 +1,6 @@
 import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
-import type { DailyAttendanceResponse } from "@/lib/types";
+import type { AttendanceRowResponse } from "@/lib/types";
 import { DateNav } from "./DateNav";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -25,7 +25,7 @@ export default async function AttendancePage({
     requestedDate && ISO_DATE_PATTERN.test(requestedDate) && isValidIsoDate(requestedDate)
       ? requestedDate
       : todayIsoDate();
-  const rows: DailyAttendanceResponse[] = await backendFetch(`/api/attendance/daily?date=${date}`, {
+  const rows: AttendanceRowResponse[] = await backendFetch(`/api/attendance/daily?date=${date}`, {
     token: await getToken(),
   });
 

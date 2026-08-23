@@ -18,6 +18,23 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
         _factory = factory;
     }
 
+    private async Task<HttpClient> TenantAdminClientAsync(Guid tenantId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var hasher = new PasswordHasher<User>();
+        var user = new User { Email = $"admin-{Guid.NewGuid()}@zak.test", PasswordHash = "", Role = UserRole.TenantAdmin, TenantId = tenantId };
+        user.PasswordHash = hasher.HashPassword(user, "correct-horse");
+        db.Users.Add(user);
+        db.SaveChanges();
+
+        var client = _factory.CreateClient();
+        var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(user.Email, "correct-horse"));
+        var body = await login.Content.ReadFromJsonAsync<LoginResponse>();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", body!.Token);
+        return client;
+    }
+
     [Fact]
     public async Task DailyView_ReturnsFirstInAndLastOut()
     {
@@ -41,23 +58,9 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
             employeeId = employee.Id;
         }
 
-        var client = _factory.CreateClient();
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var hasher = new PasswordHasher<User>();
-            var user = new User { Email = $"admin-{Guid.NewGuid()}@zak.test", PasswordHash = "", Role = UserRole.TenantAdmin, TenantId = tenantId };
-            user.PasswordHash = hasher.HashPassword(user, "correct-horse");
-            db.Users.Add(user);
-            db.SaveChanges();
-
-            var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(user.Email, "correct-horse"));
-            var body = await login.Content.ReadFromJsonAsync<LoginResponse>();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", body!.Token);
-        }
-
+        var client = await TenantAdminClientAsync(tenantId);
         var response = await client.GetAsync("/api/attendance/daily?date=2026-08-10");
-        var rows = await response.Content.ReadFromJsonAsync<List<DailyAttendanceResponse>>();
+        var rows = await response.Content.ReadFromJsonAsync<List<AttendanceRowResponse>>();
 
         var row = Assert.Single(rows!, r => r.EmployeeId == employeeId);
         Assert.Equal(9, row.FirstIn!.Value.Hour);
@@ -97,23 +100,9 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
             employeeBId = employeeB.Id;
         }
 
-        var client = _factory.CreateClient();
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var hasher = new PasswordHasher<User>();
-            var user = new User { Email = $"admin-{Guid.NewGuid()}@zak.test", PasswordHash = "", Role = UserRole.TenantAdmin, TenantId = tenantAId };
-            user.PasswordHash = hasher.HashPassword(user, "correct-horse");
-            db.Users.Add(user);
-            db.SaveChanges();
-
-            var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(user.Email, "correct-horse"));
-            var body = await login.Content.ReadFromJsonAsync<LoginResponse>();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", body!.Token);
-        }
-
+        var client = await TenantAdminClientAsync(tenantAId);
         var response = await client.GetAsync("/api/attendance/daily?date=2026-08-11");
-        var rows = await response.Content.ReadFromJsonAsync<List<DailyAttendanceResponse>>();
+        var rows = await response.Content.ReadFromJsonAsync<List<AttendanceRowResponse>>();
 
         Assert.Contains(rows!, r => r.EmployeeId == employeeAId);
         Assert.DoesNotContain(rows!, r => r.EmployeeId == employeeBId);
@@ -122,12 +111,13 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task DailyView_NameLookupIsTenantScoped_EvenForBadDataWithForeignEmployeeId()
     {
-        // Simulates data that predates the ingestion-side tenant check (finding #1): a punch
-        // recorded under tenant A's stationId/tenantId but pointing at tenant B's employee row.
-        // The Daily endpoint must not resolve the foreign employee's name via an unscoped lookup.
+        // Simulates data that predates the ingestion-side tenant check: a punch recorded under
+        // tenant A's stationId/tenantId but pointing at tenant B's employee row. The endpoint must
+        // still surface the row (defensive behavior for bad data) but never resolve the foreign
+        // employee's real name.
         var day = new DateOnly(2026, 8, 12);
 
-        Guid tenantAId, foreignEmployeeId, stationAId;
+        Guid tenantAId, foreignEmployeeId;
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -142,7 +132,6 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
             db.Stations.Add(stationA);
             db.Employees.Add(employeeB);
 
-            // Bad data: a punch tagged with tenant A's tenantId/stationId but tenant B's employeeId.
             db.Punches.Add(new Punch
             {
                 Id = Guid.NewGuid(),
@@ -156,30 +145,15 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
 
             tenantAId = tenantA.Id;
             foreignEmployeeId = employeeB.Id;
-            stationAId = stationA.Id;
         }
 
-        var client = _factory.CreateClient();
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var hasher = new PasswordHasher<User>();
-            var user = new User { Email = $"admin-{Guid.NewGuid()}@zak.test", PasswordHash = "", Role = UserRole.TenantAdmin, TenantId = tenantAId };
-            user.PasswordHash = hasher.HashPassword(user, "correct-horse");
-            db.Users.Add(user);
-            db.SaveChanges();
-
-            var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(user.Email, "correct-horse"));
-            var body = await login.Content.ReadFromJsonAsync<LoginResponse>();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", body!.Token);
-        }
-
+        var client = await TenantAdminClientAsync(tenantAId);
         var response = await client.GetAsync("/api/attendance/daily?date=2026-08-12");
-        var rows = await response.Content.ReadFromJsonAsync<List<DailyAttendanceResponse>>();
+        var rows = await response.Content.ReadFromJsonAsync<List<AttendanceRowResponse>>();
 
         var row = Assert.Single(rows!, r => r.EmployeeId == foreignEmployeeId);
         Assert.Equal("Unknown", row.EmployeeName);
-        Assert.NotEqual("Secret Bob", row.EmployeeName);
+        Assert.False(row.HasShift);
     }
 
     [Fact]
@@ -206,26 +180,80 @@ public class AttendanceControllerTests : IClassFixture<ApiFactory>
             employeeId = employee.Id;
         }
 
-        var client = _factory.CreateClient();
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var hasher = new PasswordHasher<User>();
-            var user = new User { Email = $"admin-{Guid.NewGuid()}@zak.test", PasswordHash = "", Role = UserRole.TenantAdmin, TenantId = tenantId };
-            user.PasswordHash = hasher.HashPassword(user, "correct-horse");
-            db.Users.Add(user);
-            db.SaveChanges();
-
-            var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(user.Email, "correct-horse"));
-            var body = await login.Content.ReadFromJsonAsync<LoginResponse>();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", body!.Token);
-        }
-
+        var client = await TenantAdminClientAsync(tenantId);
         var response = await client.GetAsync("/api/attendance/daily?date=2026-08-10");
-        var rows = await response.Content.ReadFromJsonAsync<List<DailyAttendanceResponse>>();
+        var rows = await response.Content.ReadFromJsonAsync<List<AttendanceRowResponse>>();
 
         var row = Assert.Single(rows!, r => r.EmployeeId == employeeId);
         Assert.Equal(9, row.FirstIn!.Value.Hour);
-        Assert.Equal(9, row.LastOut!.Value.Hour);
+        // The single in-window punch is PunchType.In; AttendanceAnalysisService.Analyze (Task 1)
+        // derives LastOut only from PunchType.Out punches, so it is correctly null here rather
+        // than aliasing to the same timestamp as FirstIn (the pre-Task-1 naive Max(timestamp)
+        // behavior this test originally asserted).
+        Assert.Null(row.LastOut);
+    }
+
+    [Fact]
+    public async Task DailyView_EmployeeWithShiftAndNoPunches_AppearsAsAbsent()
+    {
+        var day = new DateOnly(2026, 8, 13);
+
+        Guid tenantId, employeeId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = new Tenant { Name = "Acme Foods", DeviceVendor = DeviceVendor.Zk4500 };
+            var shift = new Shift { TenantId = tenant.Id, Name = "Day", StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(17, 0), GraceMinutes = 5 };
+            var employee = new Employee { TenantId = tenant.Id, EmployeeCode = "E010", Name = "No Show", ShiftId = shift.Id };
+            db.Tenants.Add(tenant);
+            db.Shifts.Add(shift);
+            db.Employees.Add(employee);
+            db.SaveChanges();
+            tenantId = tenant.Id;
+            employeeId = employee.Id;
+        }
+
+        var client = await TenantAdminClientAsync(tenantId);
+        var response = await client.GetAsync($"/api/attendance/daily?date={day:yyyy-MM-dd}");
+        var rows = await response.Content.ReadFromJsonAsync<List<AttendanceRowResponse>>();
+
+        var row = Assert.Single(rows!, r => r.EmployeeId == employeeId);
+        Assert.True(row.HasShift);
+        Assert.Null(row.FirstIn);
+        Assert.Null(row.LastOut);
+        Assert.False(row.IsLate);
+    }
+
+    [Fact]
+    public async Task DailyView_LateArrival_IsFlaggedWithMinutes()
+    {
+        var day = new DateOnly(2026, 8, 14);
+
+        Guid tenantId, employeeId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var tenant = new Tenant { Name = "Acme Foods", DeviceVendor = DeviceVendor.Zk4500 };
+            var shift = new Shift { TenantId = tenant.Id, Name = "Day", StartTime = new TimeOnly(8, 0), EndTime = new TimeOnly(17, 0), GraceMinutes = 5 };
+            var employee = new Employee { TenantId = tenant.Id, EmployeeCode = "E011", Name = "Late Larry", ShiftId = shift.Id };
+            var station = new Station { TenantId = tenant.Id, Name = "Front Desk", DeviceVendor = DeviceVendor.Zk4500, ApiKeyHash = $"hash-{Guid.NewGuid()}" };
+            db.Tenants.Add(tenant);
+            db.Shifts.Add(shift);
+            db.Employees.Add(employee);
+            db.Stations.Add(station);
+            // 06:20 UTC = 09:20 local (GMT+3); shift threshold is 08:05 local.
+            db.Punches.Add(new Punch { Id = Guid.NewGuid(), TenantId = tenant.Id, EmployeeId = employee.Id, StationId = station.Id, PunchType = PunchType.In, Timestamp = new DateTimeOffset(day.ToDateTime(new TimeOnly(6, 20)), TimeSpan.Zero) });
+            db.SaveChanges();
+            tenantId = tenant.Id;
+            employeeId = employee.Id;
+        }
+
+        var client = await TenantAdminClientAsync(tenantId);
+        var response = await client.GetAsync($"/api/attendance/daily?date={day:yyyy-MM-dd}");
+        var rows = await response.Content.ReadFromJsonAsync<List<AttendanceRowResponse>>();
+
+        var row = Assert.Single(rows!, r => r.EmployeeId == employeeId);
+        Assert.True(row.IsLate);
+        Assert.Equal(75, row.LateMinutes);
     }
 }
