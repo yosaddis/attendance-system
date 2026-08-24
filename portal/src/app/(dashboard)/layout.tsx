@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { logout } from "./actions";
 import { NavLinks } from "./NavLinks";
+import { MobileTabBar } from "./MobileTabBar";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -20,7 +21,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </form>
       </nav>
-      <main className="flex-1 bg-surface-muted">{children}</main>
+      <main className="flex-1 bg-surface-muted pb-20 md:pb-0">{children}</main>
+      <MobileTabBar />
     </div>
   );
 }
