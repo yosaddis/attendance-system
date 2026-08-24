@@ -148,7 +148,11 @@ automated:
     fitting for purpose (a difference between "single capture" and "merged template" size
     requirements is realistic, not just a formatting nitpick) if either is ever changed.
 
-**Known risk, not yet mitigated:** `zkfp2.DBMatch` (called from
+**Known risk, partially mitigated:** see "Kiosk deployment / crash recovery" below for the
+watchdog script now in place. It does not prevent the crash described next — nothing at the
+.NET level can — it only bounds how long the kiosk stays dark after one.
+
+`zkfp2.DBMatch` (called from
 `ZkFingerprintVerifier.Verify`) crashed the entire agent process with an
 uncatchable `AccessViolationException` when given 2048 bytes of random
 template data in place of a real template — confirmed against the real
@@ -179,3 +183,37 @@ available in this SDK's docs) or moving BOTH the match call and the merge
 call out-of-process so a crash in either can't take the whole kiosk down
 — both options are bigger than this integration task's scope and are
 tracked as follow-up work.
+
+## Kiosk deployment / crash recovery
+
+`run-agent.ps1` is a small supervisor: it launches `AttendanceAgent.exe`, waits for it to exit
+for any reason, and relaunches it a few seconds later. It exists specifically because of the
+`DBMatch`/`DBMerge` risk documented above — a native crash there takes the whole process down
+with no .NET exception to catch, so a kiosk left un-supervised stays dark until an operator
+notices and restarts it by hand. This script does not prevent that crash; it just bounds the
+downtime to a few seconds.
+
+Point whatever starts the agent on boot (Windows Task Scheduler, or a shortcut in the Startup
+folder) at this script instead of directly at `AttendanceAgent.exe`:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File "C:\path\to\agent\run-agent.ps1"
+```
+
+`-ExecutionPolicy Bypass` is required on a machine whose default PowerShell execution policy
+blocks unsigned scripts — confirmed necessary when testing this script; without it, the
+supervisor process exits immediately with no output and nothing gets launched at all.
+
+By default it supervises the Release build's path
+(`src\AttendanceAgent\bin\Release\net8.0-windows\AttendanceAgent.exe`) and logs restarts to
+`run-agent.log` next to the script — pass `-ExePath`/`-LogPath` to override either. If the
+process exits and gets relaunched more than 5 times within 5 minutes, the watchdog stops itself
+instead of restart-looping forever, on the assumption that a crash-on-launch loop that fast is a
+persistent problem (corrupted `agent.db`, a missing DLL, bad config) rather than the rare native
+crash this script is meant to paper over — check `run-agent.log` for the exit codes/timing before
+just re-running it.
+
+Verified manually: launched the watchdog against a Debug build, force-killed the supervised
+`AttendanceAgent.exe` process to simulate a crash, and confirmed it relaunched within a few
+seconds; then killed it repeatedly to confirm the 5-restarts-in-5-minutes guard stops the
+watchdog with a clear message instead of looping forever.
