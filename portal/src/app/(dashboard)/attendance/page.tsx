@@ -4,6 +4,7 @@ import { formatTenantTime, todayIsoDateTenant } from "@/lib/tenantTime";
 import type { AttendanceRowResponse, ShiftResponse } from "@/lib/types";
 import { DateNav } from "./DateNav";
 import { Badge } from "../Badge";
+import { AttendanceRowCard } from "../AttendanceRowCard";
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -33,7 +34,7 @@ export default async function AttendancePage({
     <div className="p-6 space-y-6">
       <h1 className="font-display text-2xl text-ink">Daily Attendance</h1>
       <DateNav date={date} />
-      <div className="overflow-x-auto bg-surface border border-border rounded-lg">
+      <div className="hidden md:block overflow-x-auto bg-surface border border-border rounded-lg">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="text-left bg-surface-muted text-ink">
@@ -62,6 +63,19 @@ export default async function AttendancePage({
             ))}
           </tbody>
         </table>
+      </div>
+      <div
+        className="md:hidden divide-y divide-border bg-surface border border-border rounded-lg"
+        data-testid="mobile-cards"
+      >
+        {rows.map((row) => (
+          <AttendanceRowCard
+            key={row.employeeId}
+            row={row}
+            shiftName={shifts.find((s) => s.id === row.shiftId)?.name ?? "—"}
+            showDate={false}
+          />
+        ))}
       </div>
     </div>
   );
