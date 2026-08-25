@@ -86,7 +86,7 @@ whatever the nav change requires.
 ### Navigation: bottom tab bar on mobile, existing top nav on desktop
 
 The nav items (href + label) move into a small shared data file,
-`portal/src/app/(dashboard)/navLinks.ts` (plain array, no `"use client"`
+`portal/src/app/(dashboard)/navLinksData.ts` (plain array, no `"use client"`
 needed), each entry optionally carrying a shorter `mobileLabel` (only
 `Employees` needs one — `"Staff"` — to keep 5 items comfortably spaced at
 375px). Both nav components import this one array so the link list and

@@ -21,7 +21,7 @@
 ### Task 1: Shared nav data, mobile tab bar, iPhone safe-area setup
 
 **Files:**
-- Create: `portal/src/app/(dashboard)/navLinks.ts`
+- Create: `portal/src/app/(dashboard)/navLinksData.ts`
 - Modify: `portal/src/app/(dashboard)/NavLinks.tsx`
 - Create: `portal/src/app/(dashboard)/MobileTabBar.tsx`
 - Test: `portal/src/app/(dashboard)/MobileTabBar.test.tsx`
@@ -29,7 +29,7 @@
 - Modify: `portal/src/app/layout.tsx`
 
 **Interfaces:**
-- Produces: `NAV_LINKS: { href: string; label: string; mobileLabel?: string }[]` exported from `navLinks.ts` — consumed by both `NavLinks.tsx` and `MobileTabBar.tsx`.
+- Produces: `NAV_LINKS: { href: string; label: string; mobileLabel?: string }[]` exported from `navLinksData.ts` — consumed by both `NavLinks.tsx` and `MobileTabBar.tsx`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -70,7 +70,7 @@ Expected: FAIL — `./MobileTabBar` doesn't exist yet.
 - [ ] **Step 3: Create the shared nav data file**
 
 ```ts
-// portal/src/app/(dashboard)/navLinks.ts
+// portal/src/app/(dashboard)/navLinksData.ts
 export type NavLink = { href: string; label: string; mobileLabel?: string };
 
 export const NAV_LINKS: NavLink[] = [
@@ -91,7 +91,7 @@ Replace the contents of `portal/src/app/(dashboard)/NavLinks.tsx`:
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV_LINKS } from "./navLinks";
+import { NAV_LINKS } from "./navLinksData";
 
 export function NavLinks() {
   const pathname = usePathname();
@@ -127,7 +127,7 @@ export function NavLinks() {
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV_LINKS } from "./navLinks";
+import { NAV_LINKS } from "./navLinksData";
 
 export function MobileTabBar() {
   const pathname = usePathname();
@@ -228,7 +228,7 @@ Expected: PASS (all tests, no regressions)
 - [ ] **Step 10: Commit**
 
 ```bash
-git add "portal/src/app/(dashboard)/navLinks.ts" "portal/src/app/(dashboard)/NavLinks.tsx" "portal/src/app/(dashboard)/MobileTabBar.tsx" "portal/src/app/(dashboard)/MobileTabBar.test.tsx" "portal/src/app/(dashboard)/layout.tsx" portal/src/app/layout.tsx
+git add "portal/src/app/(dashboard)/navLinksData.ts" "portal/src/app/(dashboard)/NavLinks.tsx" "portal/src/app/(dashboard)/MobileTabBar.tsx" "portal/src/app/(dashboard)/MobileTabBar.test.tsx" "portal/src/app/(dashboard)/layout.tsx" portal/src/app/layout.tsx
 git commit -m "feat: add a mobile bottom tab bar with iPhone safe-area support"
 ```
 
