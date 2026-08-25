@@ -14,15 +14,17 @@ export function MobileTabBar() {
     >
       {NAV_LINKS.map((link) => {
         const isActive = pathname.startsWith(link.href);
+        const Icon = link.icon;
         return (
           <Link
             key={link.href}
             href={link.href}
             className={
-              "flex-1 text-center text-xs pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] min-h-[44px] " +
+              "flex-1 flex flex-col items-center gap-0.5 text-center text-xs pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] min-h-[44px] " +
               (isActive ? "text-accent font-medium" : "text-ink-soft")
             }
           >
+            <Icon size={20} />
             {link.mobileLabel ?? link.label}
           </Link>
         );
