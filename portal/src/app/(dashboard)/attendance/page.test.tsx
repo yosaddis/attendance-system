@@ -143,5 +143,7 @@ describe("AttendancePage", () => {
     expect(within(cards).getByText(/8\.00h/)).toBeInTheDocument();
     expect(within(cards).getByText("Late (75m)")).toBeInTheDocument();
     expect(within(cards).getByText(/missing checkout/i)).toBeInTheDocument();
+    expect(screen.getByTestId("mobile-cards").className).toContain("md:hidden");
+    expect(screen.getByRole("table").parentElement!.className).toContain("hidden md:block");
   });
 });

@@ -72,5 +72,7 @@ describe("ReportsPage", () => {
     expect(within(cards).getByText("Range Rita")).toBeInTheDocument();
     expect(within(cards).getByText("2026-01-01")).toBeInTheDocument();
     expect(within(cards).getByText(/8\.00h/)).toBeInTheDocument();
+    expect(screen.getByTestId("mobile-cards").className).toContain("md:hidden");
+    expect(screen.getByRole("table").parentElement!.className).toContain("hidden md:block");
   });
 });
