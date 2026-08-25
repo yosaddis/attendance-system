@@ -23,7 +23,7 @@ export function AttendanceRowCard({
         {row.firstIn ? formatTenantTime(row.firstIn) : "—"} – {row.lastOut ? formatTenantTime(row.lastOut) : "—"}
       </div>
       {hasAnyFlag && (
-        <div className="mt-1">
+        <div className="mt-1 flex flex-wrap gap-1">
           {row.isLate && <Badge>Late{row.lateMinutes !== null ? ` (${row.lateMinutes}m)` : ""}</Badge>}
           {row.isMissingCheckout && <Badge>Missing Checkout</Badge>}
           {row.hasDoublePunch && <Badge>Double Punch</Badge>}

@@ -43,7 +43,10 @@ export default async function EmployeesPage() {
           </tbody>
         </table>
       </div>
-      <div className="md:hidden divide-y divide-border bg-surface border border-border rounded-lg">
+      <div
+        data-testid="mobile-cards"
+        className="md:hidden divide-y divide-border bg-surface border border-border rounded-lg"
+      >
         {employees.map((employee) => (
           <div key={employee.id} className="p-4 flex items-center justify-between gap-3">
             <div>

@@ -43,7 +43,10 @@ export default async function ShiftsPage() {
           </tbody>
         </table>
       </div>
-      <div className="md:hidden divide-y divide-border bg-surface border border-border rounded-lg">
+      <div
+        data-testid="mobile-cards"
+        className="md:hidden divide-y divide-border bg-surface border border-border rounded-lg"
+      >
         {shifts.map((shift) => (
           <div key={shift.id} className="p-4 flex items-center justify-between gap-3">
             <div>
