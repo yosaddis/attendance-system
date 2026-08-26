@@ -2,7 +2,7 @@ import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
 import type { EmployeeResponse, ShiftResponse } from "@/lib/types";
 import { EmployeeForm } from "./EmployeeForm";
-import { deleteEmployee } from "./actions";
+import { DeleteEmployeeButton } from "./DeleteEmployeeButton";
 
 export default async function EmployeesPage({
   searchParams,
@@ -38,11 +38,12 @@ export default async function EmployeesPage({
                 <td className="py-3 px-4">{employee.name}</td>
                 <td className="py-3 px-4">{shifts.find((s) => s.id === employee.shiftId)?.name ?? "—"}</td>
                 <td className="py-3 px-4">
-                  <form action={deleteEmployee.bind(null, employee.id)}>
-                    <button type="submit" className="text-danger hover:underline text-sm">
-                      Delete
-                    </button>
-                  </form>
+                  <div className="flex gap-3 items-center">
+                    <a href={`/employees?edit=${employee.id}`} className="text-ink hover:text-accent text-sm">
+                      Edit
+                    </a>
+                    <DeleteEmployeeButton id={employee.id} name={employee.name} />
+                  </div>
                 </td>
               </tr>
             ))}
@@ -61,11 +62,12 @@ export default async function EmployeesPage({
                 {employee.employeeCode} · {shifts.find((s) => s.id === employee.shiftId)?.name ?? "—"}
               </div>
             </div>
-            <form action={deleteEmployee.bind(null, employee.id)}>
-              <button type="submit" className="text-danger text-sm shrink-0">
-                Delete
-              </button>
-            </form>
+            <div className="flex gap-3 items-center shrink-0">
+              <a href={`/employees?edit=${employee.id}`} className="text-ink hover:text-accent text-sm">
+                Edit
+              </a>
+              <DeleteEmployeeButton id={employee.id} name={employee.name} />
+            </div>
           </div>
         ))}
       </div>
