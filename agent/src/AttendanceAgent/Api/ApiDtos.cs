@@ -1,6 +1,13 @@
 namespace AttendanceAgent.Api;
 
-public record EmployeeLookupResult(Guid EmployeeId, string EmployeeCode, string Name);
+public record EmployeeLookupResult(
+    Guid EmployeeId,
+    string EmployeeCode,
+    string Name,
+    TimeOnly? ShiftStartTime = null,
+    TimeOnly? ShiftEndTime = null,
+    TimeOnly? ShiftBreakStart = null,
+    TimeOnly? ShiftBreakEnd = null);
 public record LoginResult(string Role, Guid? TenantId = null);
 
 internal record TemplateFetchResponse(Guid EmployeeId, string TemplateData, DateTimeOffset EnrolledAt);

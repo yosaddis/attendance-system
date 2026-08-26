@@ -24,6 +24,50 @@ public class EmployeeDirectoryServiceTests
     }
 
     [Fact]
+    public async Task ResolveAsync_Online_CachesShiftTimesLocally()
+    {
+        using var db = TestDb.CreateInMemory();
+        var api = new FakeBackendApiClient
+        {
+            LookupResult = new EmployeeLookupResult(
+                EmployeeId, "E001", "Jane Doe",
+                new TimeOnly(9, 0), new TimeOnly(17, 0), new TimeOnly(12, 0), new TimeOnly(13, 0)),
+        };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        await service.ResolveAsync("E001");
+
+        var cached = await db.CachedEmployees.FindAsync(EmployeeId);
+        Assert.Equal(new TimeOnly(9, 0), cached!.ShiftStartTime);
+        Assert.Equal(new TimeOnly(17, 0), cached.ShiftEndTime);
+        Assert.Equal(new TimeOnly(12, 0), cached.ShiftBreakStart);
+        Assert.Equal(new TimeOnly(13, 0), cached.ShiftBreakEnd);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_Offline_FallsBackToCachedShiftTimes()
+    {
+        using var db = TestDb.CreateInMemory();
+        db.CachedEmployees.Add(new CachedEmployee
+        {
+            EmployeeId = EmployeeId,
+            EmployeeCode = "E001",
+            Name = "Jane Doe",
+            ShiftStartTime = new TimeOnly(9, 0),
+            ShiftEndTime = new TimeOnly(17, 0),
+            CachedAt = DateTimeOffset.UtcNow,
+        });
+        db.SaveChanges();
+        var api = new FakeBackendApiClient { ThrowOnLookup = true };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Equal(new TimeOnly(9, 0), result!.ShiftStartTime);
+        Assert.Equal(new TimeOnly(17, 0), result.ShiftEndTime);
+    }
+
+    [Fact]
     public async Task ResolveAsync_Offline_FallsBackToLocalCache()
     {
         using var db = TestDb.CreateInMemory();

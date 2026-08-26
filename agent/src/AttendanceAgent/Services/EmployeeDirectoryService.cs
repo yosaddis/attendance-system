@@ -49,7 +49,9 @@ public class EmployeeDirectoryService : IEmployeeDirectoryService
         }
 
         var cached = await _db.CachedEmployees.SingleOrDefaultAsync(e => e.EmployeeCode == code, ct);
-        return cached is null ? null : new EmployeeLookupResult(cached.EmployeeId, cached.EmployeeCode, cached.Name);
+        return cached is null ? null : new EmployeeLookupResult(
+            cached.EmployeeId, cached.EmployeeCode, cached.Name,
+            cached.ShiftStartTime, cached.ShiftEndTime, cached.ShiftBreakStart, cached.ShiftBreakEnd);
     }
 
     private async Task PurgeCachedEmployeeAsync(string code, CancellationToken ct)
@@ -86,6 +88,10 @@ public class EmployeeDirectoryService : IEmployeeDirectoryService
                 EmployeeId = result.EmployeeId,
                 EmployeeCode = result.EmployeeCode,
                 Name = result.Name,
+                ShiftStartTime = result.ShiftStartTime,
+                ShiftEndTime = result.ShiftEndTime,
+                ShiftBreakStart = result.ShiftBreakStart,
+                ShiftBreakEnd = result.ShiftBreakEnd,
                 CachedAt = DateTimeOffset.UtcNow,
             });
         }
@@ -93,6 +99,10 @@ public class EmployeeDirectoryService : IEmployeeDirectoryService
         {
             existing.EmployeeCode = result.EmployeeCode;
             existing.Name = result.Name;
+            existing.ShiftStartTime = result.ShiftStartTime;
+            existing.ShiftEndTime = result.ShiftEndTime;
+            existing.ShiftBreakStart = result.ShiftBreakStart;
+            existing.ShiftBreakEnd = result.ShiftBreakEnd;
             existing.CachedAt = DateTimeOffset.UtcNow;
         }
         await _db.SaveChangesAsync(ct);
