@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using AttendanceApi.Data;
 using AttendanceApi.Dtos;
 using AttendanceApi.Entities;
@@ -104,7 +105,12 @@ public class EmployeesControllerTests : IClassFixture<ApiFactory>
         }
 
         var listResponse = await client.GetAsync("/api/employees");
-        var list = await listResponse.Content.ReadFromJsonAsync<List<EmployeeResponse>>();
+        var rawJson = await listResponse.Content.ReadAsStringAsync();
+        Assert.Contains("\"hasFingerprint\"", rawJson);
+
+        var list = JsonSerializer.Deserialize<List<EmployeeResponse>>(
+            rawJson,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
         Assert.True(list!.Single(e => e.Id == enrolled.Id).HasFingerprint);
         Assert.False(list.Single(e => e.Id == unenrolled!.Id).HasFingerprint);
