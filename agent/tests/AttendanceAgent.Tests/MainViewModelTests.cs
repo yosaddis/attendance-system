@@ -132,18 +132,41 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public async Task StartEnrollment_OnSuccess_ReturnsToPunchPanelWithMessage()
+    public async Task StartEnrollment_OnSuccess_StaysOnAdminTabWithMessage()
     {
+        var tenantId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", tenantId), StationTenantId = tenantId };
+        var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
         var enrollment = new FakeEnrollmentService { Result = new EnrollmentResult(true, "Fingerprint enrolled for Yoseph Addisu Abate.") };
-        var vm = new MainViewModel(new FakeCaptureService(), enrollment, new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        var vm = new MainViewModel(new FakeCaptureService(), enrollment, api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+        await vm.AdminLoginCommand.ExecuteAsync(null);
         vm.EnrollEmployeeCode = "E002";
 
         await vm.StartEnrollmentCommand.ExecuteAsync(null);
 
         Assert.Equal("Fingerprint enrolled for Yoseph Addisu Abate.", vm.StatusMessage);
         Assert.Equal("", vm.EnrollEmployeeCode);
-        Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
-        Assert.Equal(Visibility.Collapsed, vm.EnrollPanelVisibility);
+        Assert.Equal(Visibility.Collapsed, vm.PunchPanelVisibility);
+        Assert.Equal(Visibility.Visible, vm.EnrollPanelVisibility);
+    }
+
+    [Fact]
+    public async Task StartEnrollment_OnFailure_KeepsEnrollEmployeeCodeAndStaysOnAdminTab()
+    {
+        var tenantId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", tenantId), StationTenantId = tenantId };
+        var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
+        var enrollment = new FakeEnrollmentService { Result = new EnrollmentResult(false, "Fingerprint capture failed — please try again.") };
+        var vm = new MainViewModel(new FakeCaptureService(), enrollment, api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+        await vm.AdminLoginCommand.ExecuteAsync(null);
+        vm.EnrollEmployeeCode = "E002";
+
+        await vm.StartEnrollmentCommand.ExecuteAsync(null);
+
+        Assert.Equal("Fingerprint capture failed — please try again.", vm.StatusMessage);
+        Assert.Equal("E002", vm.EnrollEmployeeCode);
+        Assert.Equal(Visibility.Collapsed, vm.PunchPanelVisibility);
+        Assert.Equal(Visibility.Visible, vm.EnrollPanelVisibility);
     }
 
     [Fact]
@@ -167,11 +190,15 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public async Task CancelEnrollment_ActuallyCancelsTheRunningEnrollment_AndReturnsToPunchPanel()
+    public async Task CancelEnrollment_ActuallyCancelsTheRunningEnrollment_AndStaysOnAdminTab()
     {
+        var tenantId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", tenantId), StationTenantId = tenantId };
+        var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
         var pending = new TaskCompletionSource<EnrollmentResult>();
         var enrollment = new FakeEnrollmentService { PendingCompletion = pending };
-        var vm = new MainViewModel(new FakeCaptureService(), enrollment, new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        var vm = new MainViewModel(new FakeCaptureService(), enrollment, api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+        await vm.AdminLoginCommand.ExecuteAsync(null);
         vm.EnrollEmployeeCode = "E002";
 
         var enrollTask = vm.StartEnrollmentCommand.ExecuteAsync(null);
@@ -180,10 +207,14 @@ public class MainViewModelTests
         vm.StartEnrollmentCancelCommand.Execute(null);
         await enrollTask;
 
+        // FakeEnrollmentService resolves a cancelled attempt with EnrollmentResult(false, "Enrollment
+        // cancelled."), not an exception — so under the new "only clear on success" rule,
+        // EnrollEmployeeCode is deliberately RETAINED here (unlike the old unconditional clear).
         Assert.True(enrollment.LastCancellationToken!.Value.IsCancellationRequested);
-        Assert.Equal("", vm.EnrollEmployeeCode);
-        Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
-        Assert.Equal(Visibility.Collapsed, vm.EnrollPanelVisibility);
+        Assert.Equal("Enrollment cancelled.", vm.StatusMessage);
+        Assert.Equal("E002", vm.EnrollEmployeeCode);
+        Assert.Equal(Visibility.Collapsed, vm.PunchPanelVisibility);
+        Assert.Equal(Visibility.Visible, vm.EnrollPanelVisibility);
     }
 
     [Fact]
@@ -223,15 +254,17 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public void ExitAdminMode_WhileIdleOnEnrollPanel_ReturnsToPunchPanel()
+    public async Task SelectPunchTab_WhileIdleOnAdminTab_ReturnsToPunchTab()
     {
-        var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        var tenantId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", tenantId), StationTenantId = tenantId };
+        var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
+        var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+        await vm.AdminLoginCommand.ExecuteAsync(null);
         vm.EnrollEmployeeCode = "E002";
-        vm.PunchPanelVisibility = Visibility.Collapsed;
-        vm.EnrollPanelVisibility = Visibility.Visible;
 
-        Assert.True(vm.ExitAdminModeCommand.CanExecute(null));
-        vm.ExitAdminModeCommand.Execute(null);
+        Assert.True(vm.SelectPunchTabCommand.CanExecute(null));
+        vm.SelectPunchTabCommand.Execute(null);
 
         Assert.Equal("", vm.EnrollEmployeeCode);
         Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
@@ -239,21 +272,25 @@ public class MainViewModelTests
     }
 
     [Fact]
-    public async Task ExitAdminMode_WhileEnrollmentRunning_IsDisabled()
+    public async Task SelectPunchTab_WhileEnrollmentRunning_IsDisabled()
     {
+        var tenantId = Guid.NewGuid();
+        var api = new FakeBackendApiClient { LoginResult = new LoginResult("TenantAdmin", tenantId), StationTenantId = tenantId };
+        var prompt = new FakeAdminCredentialPrompt { Result = ("admin@acme.test", "correct-horse-battery") };
         var pending = new TaskCompletionSource<EnrollmentResult>();
         var enrollment = new FakeEnrollmentService { PendingCompletion = pending };
-        var vm = new MainViewModel(new FakeCaptureService(), enrollment, new FakeBackendApiClient(), new FakeFingerprintDevice(), new FakeFingerprintEnroller(), new FakeAdminCredentialPrompt());
+        var vm = new MainViewModel(new FakeCaptureService(), enrollment, api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
+        await vm.AdminLoginCommand.ExecuteAsync(null);
         vm.EnrollEmployeeCode = "E002";
 
         var enrollTask = vm.StartEnrollmentCommand.ExecuteAsync(null);
 
-        Assert.False(vm.ExitAdminModeCommand.CanExecute(null));
+        Assert.False(vm.SelectPunchTabCommand.CanExecute(null));
 
         pending.SetResult(new EnrollmentResult(true, "Fingerprint enrolled for Yoseph Addisu Abate."));
         await enrollTask;
 
-        Assert.True(vm.ExitAdminModeCommand.CanExecute(null));
+        Assert.True(vm.SelectPunchTabCommand.CanExecute(null));
     }
 
     [Fact]

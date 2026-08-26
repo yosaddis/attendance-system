@@ -29,10 +29,15 @@ public partial class MainViewModel : ObservableObject
     private string enrollProgressMessage = "";
 
     [ObservableProperty]
-    private Visibility punchPanelVisibility = Visibility.Visible;
+    [NotifyPropertyChangedFor(nameof(PunchPanelVisibility))]
+    [NotifyPropertyChangedFor(nameof(EnrollPanelVisibility))]
+    [NotifyCanExecuteChangedFor(nameof(AdminLoginCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SelectPunchTabCommand))]
+    private bool isAdminTabActive;
 
-    [ObservableProperty]
-    private Visibility enrollPanelVisibility = Visibility.Collapsed;
+    public Visibility PunchPanelVisibility => IsAdminTabActive ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility EnrollPanelVisibility => IsAdminTabActive ? Visibility.Visible : Visibility.Collapsed;
 
     // A punch and an enrollment must never run concurrently — both drive the same Singleton
     // IFingerprintDevice instance (see HostComposition.ConfigureServices), which holds mutable
@@ -44,7 +49,7 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(PunchCommand))]
     [NotifyCanExecuteChangedFor(nameof(StartEnrollmentCommand))]
-    [NotifyCanExecuteChangedFor(nameof(ExitAdminModeCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SelectPunchTabCommand))]
     [NotifyCanExecuteChangedFor(nameof(AdminLoginCommand))]
     private bool isDeviceBusy;
 
@@ -66,21 +71,23 @@ public partial class MainViewModel : ObservableObject
 
     private bool CanUseDevice() => !IsDeviceBusy;
 
-    // Without this, an admin who unlocks the Enroll panel and is called away (or simply changes
+    private bool CanLoginAsAdmin() => CanUseDevice() && !IsAdminTabActive;
+
+    private bool CanSelectPunchTab() => CanUseDevice() && IsAdminTabActive;
+
+    // Without this, an admin who unlocks the Admin tab and is called away (or simply changes
     // their mind before clicking "Start Enrollment") leaves the station with NO reachable punch
     // UI — the punch panel is Collapsed (WPF does not hit-test collapsed elements), and
-    // StartEnrollmentCancelCommand is only enabled while an enrollment is actually running.
-    // Reproduced live during Task 8's review: idle on the Enroll panel,
-    // StartEnrollmentCancelCommand.CanExecute(null) is false. Gated on CanUseDevice (not
-    // unconditionally enabled) so it can't be used to bypass a running enrollment — exiting
-    // while one is genuinely in flight must still go through Cancel.
-    [RelayCommand(CanExecute = nameof(CanUseDevice))]
-    private void ExitAdminMode()
+    // StartEnrollmentCancelCommand is only enabled while an enrollment is actually running. This
+    // is the deliberate re-lock point: switching back to Punch always clears the Admin tab's
+    // state. Gated on CanUseDevice (not unconditionally enabled) so it can't be used to bypass a
+    // running enrollment — leaving while one is genuinely in flight must still go through Cancel.
+    [RelayCommand(CanExecute = nameof(CanSelectPunchTab))]
+    private void SelectPunchTab()
     {
         EnrollEmployeeCode = "";
         EnrollProgressMessage = "";
-        PunchPanelVisibility = Visibility.Visible;
-        EnrollPanelVisibility = Visibility.Collapsed;
+        IsAdminTabActive = false;
     }
 
     [RelayCommand(CanExecute = nameof(CanUseDevice))]
@@ -108,7 +115,7 @@ public partial class MainViewModel : ObservableObject
     // too) until the punch finishes. That residual ordering is benign and self-healing (the
     // operator sees a station that looks unlocked but does nothing, for the punch's duration only)
     // — this gate exists to prevent the more common case, not to guarantee every ordering.
-    [RelayCommand(CanExecute = nameof(CanUseDevice))]
+    [RelayCommand(CanExecute = nameof(CanLoginAsAdmin))]
     private async Task AdminLoginAsync()
     {
         (string Email, string Password)? credentials;
@@ -143,8 +150,7 @@ public partial class MainViewModel : ObservableObject
         }
 
         StatusMessage = "";
-        PunchPanelVisibility = Visibility.Collapsed;
-        EnrollPanelVisibility = Visibility.Visible;
+        IsAdminTabActive = true;
     }
 
     // IncludeCancelCommand generates a companion StartEnrollmentCancelCommand, automatically
@@ -159,9 +165,10 @@ public partial class MainViewModel : ObservableObject
     private async Task StartEnrollmentAsync(CancellationToken ct)
     {
         IsDeviceBusy = true;
+        EnrollmentResult? result = null;
         try
         {
-            var result = await _enrollmentService.EnrollAsync(
+            result = await _enrollmentService.EnrollAsync(
                 EnrollEmployeeCode,
                 _device,
                 _enroller,
@@ -172,10 +179,8 @@ public partial class MainViewModel : ObservableObject
         }
         finally
         {
-            EnrollEmployeeCode = "";
             EnrollProgressMessage = "";
-            PunchPanelVisibility = Visibility.Visible;
-            EnrollPanelVisibility = Visibility.Collapsed;
+            if (result?.Success == true) EnrollEmployeeCode = "";
             IsDeviceBusy = false;
         }
     }
