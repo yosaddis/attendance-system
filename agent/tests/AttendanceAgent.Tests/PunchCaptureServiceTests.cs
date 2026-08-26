@@ -136,6 +136,62 @@ public class PunchCaptureServiceTests
     }
 
     [Fact]
+    public async Task CapturePunch_BreakOutOutsideConfiguredBreakWindow_FailsWithoutTouchingDevice()
+    {
+        using var db = TestDb.CreateInMemory();
+        var employeeId = Guid.NewGuid();
+        var breakStart = TimeOnly.FromDateTime(DateTime.Now.AddMinutes(45));
+        var api = new FakeBackendApiClient
+        {
+            LookupResult = new EmployeeLookupResult(employeeId, "E001", "Jane Doe", ShiftBreakStart: breakStart),
+            TemplateResult = new byte[] { 1, 2, 3 },
+        };
+        var queue = new PunchQueueService(db);
+        var service = new PunchCaptureService(
+            new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance),
+            new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance),
+            new FakeFingerprintVerifier { AlwaysMatches = true },
+            queue);
+        var device = new FakeFingerprintDevice { NextCapture = new byte[] { 9, 9 } };
+
+        var result = await service.CapturePunchAsync("E001", "BreakOut", device);
+
+        Assert.False(result.Success);
+        Assert.Contains("Too early", result.Message);
+        Assert.Contains("Break Out", result.Message);
+        Assert.False(device.IsAcquired);
+        Assert.Empty(await queue.GetPendingAsync());
+    }
+
+    [Fact]
+    public async Task CapturePunch_BreakInOutsideConfiguredBreakWindow_FailsWithoutTouchingDevice()
+    {
+        using var db = TestDb.CreateInMemory();
+        var employeeId = Guid.NewGuid();
+        var breakEnd = TimeOnly.FromDateTime(DateTime.Now.AddMinutes(-45));
+        var api = new FakeBackendApiClient
+        {
+            LookupResult = new EmployeeLookupResult(employeeId, "E001", "Jane Doe", ShiftBreakEnd: breakEnd),
+            TemplateResult = new byte[] { 1, 2, 3 },
+        };
+        var queue = new PunchQueueService(db);
+        var service = new PunchCaptureService(
+            new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance),
+            new TemplateCacheService(api, db, NullLogger<TemplateCacheService>.Instance),
+            new FakeFingerprintVerifier { AlwaysMatches = true },
+            queue);
+        var device = new FakeFingerprintDevice { NextCapture = new byte[] { 9, 9 } };
+
+        var result = await service.CapturePunchAsync("E001", "BreakIn", device);
+
+        Assert.False(result.Success);
+        Assert.Contains("Too late", result.Message);
+        Assert.Contains("Break In", result.Message);
+        Assert.False(device.IsAcquired);
+        Assert.Empty(await queue.GetPendingAsync());
+    }
+
+    [Fact]
     public async Task CapturePunch_UnknownEmployee_FailsWithoutEnqueueing()
     {
         using var db = TestDb.CreateInMemory();

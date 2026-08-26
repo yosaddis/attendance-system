@@ -71,7 +71,9 @@ public partial class App : Application
             // that would throw "no such table: QueuedPunches" before EnsureCreated() ever ran.
             using (var scope = _host.Services.CreateScope())
             {
-                scope.ServiceProvider.GetRequiredService<AgentDbContext>().Database.EnsureCreated();
+                var db = scope.ServiceProvider.GetRequiredService<AgentDbContext>();
+                db.Database.EnsureCreated();
+                AgentDbSchemaUpgrader.EnsureCachedEmployeeShiftColumns(db);
             }
 
             using (var scope = _host.Services.CreateScope())

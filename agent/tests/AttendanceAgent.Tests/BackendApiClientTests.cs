@@ -29,6 +29,10 @@ public class BackendApiClientTests
                 employeeId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
                 employeeCode = "E001",
                 name = "Jane Doe",
+                shiftStartTime = "09:00:00",
+                shiftEndTime = "17:00:00",
+                shiftBreakStart = "12:00:00",
+                shiftBreakEnd = "13:00:00",
             }),
         });
         var client = new BackendApiClient(new HttpClient(handler), db, Microsoft.Extensions.Logging.Abstractions.NullLogger<BackendApiClient>.Instance);
@@ -37,6 +41,10 @@ public class BackendApiClientTests
 
         Assert.Equal("Jane Doe", result!.Name);
         Assert.Equal("secret-key", handler.LastRequest!.Headers.GetValues("X-Station-Key").Single());
+        Assert.Equal(new TimeOnly(9, 0), result.ShiftStartTime);
+        Assert.Equal(new TimeOnly(17, 0), result.ShiftEndTime);
+        Assert.Equal(new TimeOnly(12, 0), result.ShiftBreakStart);
+        Assert.Equal(new TimeOnly(13, 0), result.ShiftBreakEnd);
     }
 
     [Fact]
