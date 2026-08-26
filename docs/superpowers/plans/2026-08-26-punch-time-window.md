@@ -529,7 +529,7 @@ In `agent/src/AttendanceAgent/Services/PunchCaptureService.cs`, replace:
 with:
 
 ```csharp
-    private static readonly TimeSpan PunchWindowMargin = TimeSpan.FromMinutes(30);
+    private const int PunchWindowMarginMinutes = 30;
 
     public async Task<PunchResult> CapturePunchAsync(string employeeCode, string punchType, IFingerprintDevice device, CancellationToken ct = default)
     {
@@ -544,7 +544,19 @@ with:
         var enrolledTemplate = await _templates.GetTemplateAsync(employee.EmployeeId, ct);
 ```
 
-Then add these two private static methods at the end of the `PunchCaptureService` class, just before its closing brace:
+> **Amended during implementation:** the original version of this step used raw `TimeSpan`
+> arithmetic (`DateTime.Now.TimeOfDay` minus/plus a `TimeSpan` margin), which breaks whenever a
+> shift boundary sits within 30 minutes of midnight and `DateTime.Now` falls on the other side of
+> it — e.g. shift ends 23:50, now is 00:10; the naive difference reads as ~23h40m instead of the
+> real 20 minutes, misclassifying an in-window punch as "too early." This was caught live: Task
+> 3's own tests (which compute shift times relative to the real clock, per this plan's Global
+> Constraints) started failing right as the session crossed midnight into the next day, landing
+> exactly on this case by chance. The version below replaces the `TimeSpan` comparison with signed,
+> wrapped minute-of-day arithmetic, which handles midnight correctly without needing to solve the
+> broader (still out-of-scope) overnight-shift problem — this only wraps the ±30 minute window
+> itself, not shift start/end ordering.
+
+Add this private static method at the end of the `PunchCaptureService` class, just before its closing brace:
 
 ```csharp
     // Returns a rejection message if `now` falls outside the ±30 minute window around the shift
@@ -564,18 +576,23 @@ Then add these two private static methods at the end of the `PunchCaptureService
 
         if (shiftTime is null) return null;
 
-        var now = DateTime.Now.TimeOfDay;
-        var target = shiftTime.Value.ToTimeSpan();
-        var windowStart = target - PunchWindowMargin;
-        var windowEnd = target + PunchWindowMargin;
+        // Signed shortest-path distance (in minutes) from the shift time to now, wrapping
+        // correctly around midnight. Raw, unwrapped time-of-day arithmetic (comparing TimeSpans
+        // directly) miscompares whenever a shift boundary sits within the margin of midnight and
+        // "now" falls on the other side of it — e.g. shift ends 23:50, now is 00:10; the naive
+        // difference looks like ~23h40m instead of the real 20 minutes.
+        var now = TimeOnly.FromDateTime(DateTime.Now);
+        var diffMinutes = (now.Hour * 60 + now.Minute) - (shiftTime.Value.Hour * 60 + shiftTime.Value.Minute);
+        if (diffMinutes > 720) diffMinutes -= 1440;
+        if (diffMinutes <= -720) diffMinutes += 1440;
 
-        if (now >= windowStart && now <= windowEnd) return null;
+        if (Math.Abs(diffMinutes) <= PunchWindowMarginMinutes) return null;
 
-        var tooEarly = now < windowStart;
-        return $"Too {(tooEarly ? "early" : "late")} to punch {punchLabel} — accepted from {FormatTime(windowStart)} to {FormatTime(windowEnd)}.";
+        var tooEarly = diffMinutes < 0;
+        var windowStart = shiftTime.Value.AddMinutes(-PunchWindowMarginMinutes).ToString("h:mm tt");
+        var windowEnd = shiftTime.Value.AddMinutes(PunchWindowMarginMinutes).ToString("h:mm tt");
+        return $"Too {(tooEarly ? "early" : "late")} to punch {punchLabel} — accepted from {windowStart} to {windowEnd}.";
     }
-
-    private static string FormatTime(TimeSpan t) => DateTime.Today.Add(t).ToString("h:mm tt");
 ```
 
 - [ ] **Step 4: Run the tests to verify they pass**
