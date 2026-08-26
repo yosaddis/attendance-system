@@ -4,17 +4,23 @@ import type { EmployeeResponse, ShiftResponse } from "@/lib/types";
 import { EmployeeForm } from "./EmployeeForm";
 import { deleteEmployee } from "./actions";
 
-export default async function EmployeesPage() {
+export default async function EmployeesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ edit?: string }>;
+}) {
+  const { edit } = await searchParams;
   const token = await getToken();
   const [employees, shifts]: [EmployeeResponse[], ShiftResponse[]] = await Promise.all([
     backendFetch("/api/employees", { token }),
     backendFetch("/api/shifts", { token }),
   ]);
+  const editingEmployee = edit ? employees.find((e) => e.id === edit) : undefined;
 
   return (
     <div className="p-6 space-y-6">
       <h1 className="font-display text-2xl text-ink">Employees</h1>
-      <EmployeeForm shifts={shifts} />
+      <EmployeeForm shifts={shifts} employee={editingEmployee} />
       <div className="hidden md:block overflow-x-auto bg-surface border border-border rounded-lg">
         <table className="w-full text-sm border-collapse">
           <thead>

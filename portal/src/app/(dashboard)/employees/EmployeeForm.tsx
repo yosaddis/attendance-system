@@ -1,14 +1,12 @@
 "use client";
 
 import { useActionState } from "react";
-import type { ShiftResponse } from "@/lib/types";
-import { createEmployee, type CreateEmployeeState } from "./actions";
+import type { EmployeeResponse, ShiftResponse } from "@/lib/types";
+import { createEmployee, updateEmployee, type CreateEmployeeState } from "./actions";
 
-export function EmployeeForm({ shifts }: { shifts: ShiftResponse[] }) {
-  const [state, formAction, isPending] = useActionState<CreateEmployeeState, FormData>(
-    createEmployee,
-    null,
-  );
+export function EmployeeForm({ shifts, employee }: { shifts: ShiftResponse[]; employee?: EmployeeResponse }) {
+  const action = employee ? updateEmployee.bind(null, employee.id) : createEmployee;
+  const [state, formAction, isPending] = useActionState<CreateEmployeeState, FormData>(action, null);
 
   return (
     <form
@@ -26,7 +24,14 @@ export function EmployeeForm({ shifts }: { shifts: ShiftResponse[] }) {
           id="employeeCode"
           name="employeeCode"
           required
-          className="border border-border rounded-md px-3 py-2 text-ink focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
+          readOnly={!!employee}
+          defaultValue={employee?.employeeCode}
+          className={
+            "border border-border rounded-md px-3 py-2 text-ink focus:outline-none " +
+            (employee
+              ? "bg-surface-muted text-ink-soft cursor-not-allowed"
+              : "focus:ring-2 focus:ring-accent focus:border-accent")
+          }
         />
       </label>
       <label htmlFor="name" className="flex flex-col text-sm gap-1 text-ink-soft">
@@ -35,6 +40,7 @@ export function EmployeeForm({ shifts }: { shifts: ShiftResponse[] }) {
           id="name"
           name="name"
           required
+          defaultValue={employee?.name}
           className="border border-border rounded-md px-3 py-2 text-ink focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
         />
       </label>
@@ -43,6 +49,7 @@ export function EmployeeForm({ shifts }: { shifts: ShiftResponse[] }) {
         <select
           id="shiftId"
           name="shiftId"
+          defaultValue={employee?.shiftId ?? ""}
           className="border border-border rounded-md px-3 py-2 text-ink focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
         >
           <option value="">— None —</option>
@@ -53,13 +60,23 @@ export function EmployeeForm({ shifts }: { shifts: ShiftResponse[] }) {
           ))}
         </select>
       </label>
-      <button
-        type="submit"
-        disabled={isPending}
-        className="bg-accent hover:bg-accent-hover text-accent-ink font-medium rounded-md px-4 py-2 transition-colors disabled:opacity-60"
-      >
-        Add employee
-      </button>
+      <div className="flex gap-3">
+        <button
+          type="submit"
+          disabled={isPending}
+          className="bg-accent hover:bg-accent-hover text-accent-ink font-medium rounded-md px-4 py-2 transition-colors disabled:opacity-60"
+        >
+          {employee ? "Save changes" : "Add employee"}
+        </button>
+        {employee && (
+          <a
+            href="/employees"
+            className="border border-border rounded-md px-4 py-2 text-ink hover:border-accent flex items-center"
+          >
+            Cancel
+          </a>
+        )}
+      </div>
     </form>
   );
 }

@@ -1,21 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const cookieStore = vi.hoisted(() => {
+const { cookieStore, redirectMock } = vi.hoisted(() => {
   const store = new Map<string, string>();
+  const redirect = vi.fn((url: string) => {
+    throw new Error(`REDIRECT:${url}`);
+  });
   return {
-    get: (name: string) => (store.has(name) ? { name, value: store.get(name)! } : undefined),
-    set: (name: string, value: string) => {
-      store.set(name, value);
+    cookieStore: {
+      get: (name: string) => (store.has(name) ? { name, value: store.get(name)! } : undefined),
+      set: (name: string, value: string) => {
+        store.set(name, value);
+      },
     },
+    redirectMock: redirect,
   };
 });
 
 vi.mock("next/headers", () => ({ cookies: () => cookieStore }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/navigation", () => ({ redirect: redirectMock }));
 
 import { revalidatePath } from "next/cache";
 import { SESSION_COOKIE } from "@/lib/constants";
-import { createEmployee, deleteEmployee } from "./actions";
+import { createEmployee, deleteEmployee, updateEmployee } from "./actions";
 
 describe("employee actions", () => {
   beforeEach(() => {
@@ -106,5 +113,38 @@ describe("employee actions", () => {
 
     expect(String(fetchMock.mock.calls[0][0])).toContain("/api/employees/e1");
     expect(revalidatePath).toHaveBeenCalledWith("/employees");
+  });
+
+  it("PUTs the updated fields to /api/employees/{id} and redirects on success", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "e1" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const formData = new FormData();
+    formData.set("employeeCode", "E001");
+    formData.set("name", "Jane Renamed");
+    formData.set("shiftId", "s2");
+
+    await expect(updateEmployee("e1", null, formData)).rejects.toThrow("REDIRECT:/employees");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/employees/e1");
+    expect(init.method).toBe("PUT");
+    const body = JSON.parse(init.body as string);
+    expect(body).toEqual({ employeeCode: "E001", name: "Jane Renamed", shiftId: "s2" });
+    expect(revalidatePath).toHaveBeenCalledWith("/employees");
+  });
+
+  it("returns an error state instead of throwing when the backend rejects an update", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("shift does not exist", { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const formData = new FormData();
+    formData.set("employeeCode", "E001");
+    formData.set("name", "Jane Doe");
+
+    const state = await updateEmployee("e1", null, formData);
+
+    expect(state?.error).toBe("Could not save employee: shift does not exist");
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 });
