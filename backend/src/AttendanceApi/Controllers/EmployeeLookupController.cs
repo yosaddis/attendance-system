@@ -23,6 +23,17 @@ public class EmployeeLookupController : ControllerBase
         var employee = await _db.Employees.SingleOrDefaultAsync(e => e.TenantId == tenantId && e.EmployeeCode == code);
         if (employee is null) return NotFound();
 
-        return new EmployeeLookupResponse(employee.Id, employee.EmployeeCode, employee.Name);
+        var shift = employee.ShiftId is null
+            ? null
+            : await _db.Shifts.SingleOrDefaultAsync(s => s.Id == employee.ShiftId);
+
+        return new EmployeeLookupResponse(
+            employee.Id,
+            employee.EmployeeCode,
+            employee.Name,
+            shift?.StartTime,
+            shift?.EndTime,
+            shift?.BreakStart,
+            shift?.BreakEnd);
     }
 }
