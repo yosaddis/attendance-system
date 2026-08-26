@@ -87,6 +87,7 @@ public partial class MainViewModel : ObservableObject
     {
         EnrollEmployeeCode = "";
         EnrollProgressMessage = "";
+        StatusMessage = "";
         IsAdminTabActive = false;
     }
 
@@ -107,7 +108,8 @@ public partial class MainViewModel : ObservableObject
     }
 
     // Gated on CanUseDevice so a login can't be STARTED while a punch or enrollment already owns
-    // the device. This does not fully close the gap: AdminLoginAsync never sets IsDeviceBusy
+    // the device, or re-triggered while already on the Admin tab. This does not fully close the
+    // gap: AdminLoginAsync never sets IsDeviceBusy
     // itself, so a punch that starts DURING an already-in-progress login's two awaits (LoginAsync,
     // GetStationTenantIdAsync) can still land its own IsDeviceBusy=true/false around the login's
     // unconditional panel flip below — momentarily unlocking the Enroll panel with every one of

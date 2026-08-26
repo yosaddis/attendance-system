@@ -47,6 +47,7 @@ public class MainViewModelTests
 
         Assert.Equal(Visibility.Collapsed, vm.PunchPanelVisibility);
         Assert.Equal(Visibility.Visible, vm.EnrollPanelVisibility);
+        Assert.False(vm.AdminLoginCommand.CanExecute(null));       // already on Admin — no re-prompt
     }
 
     [Fact]
@@ -262,13 +263,17 @@ public class MainViewModelTests
         var vm = new MainViewModel(new FakeCaptureService(), new FakeEnrollmentService(), api, new FakeFingerprintDevice(), new FakeFingerprintEnroller(), prompt);
         await vm.AdminLoginCommand.ExecuteAsync(null);
         vm.EnrollEmployeeCode = "E002";
+        vm.StatusMessage = "Fingerprint capture failed — please try again.";
 
         Assert.True(vm.SelectPunchTabCommand.CanExecute(null));
         vm.SelectPunchTabCommand.Execute(null);
 
         Assert.Equal("", vm.EnrollEmployeeCode);
+        Assert.Equal("", vm.StatusMessage);
         Assert.Equal(Visibility.Visible, vm.PunchPanelVisibility);
         Assert.Equal(Visibility.Collapsed, vm.EnrollPanelVisibility);
+        Assert.False(vm.SelectPunchTabCommand.CanExecute(null));   // already on Punch
+        Assert.True(vm.AdminLoginCommand.CanExecute(null));        // Admin re-armed
     }
 
     [Fact]
@@ -298,7 +303,7 @@ public class MainViewModelTests
     {
         // A whole-branch re-review found AdminLoginCommand had no CanExecute gate at all: an
         // admin login completing while a punch was in-flight unconditionally unlocked the Enroll
-        // panel, whose buttons (StartEnrollmentCommand/ExitAdminModeCommand) were all still
+        // panel, whose buttons (StartEnrollmentCommand/SelectPunchTabCommand) were all still
         // disabled by CanUseDevice — a station that visually looks unlocked but does nothing.
         var pending = new TaskCompletionSource<PunchResult>();
         var capture = new FakeCaptureService { PendingCompletion = pending };
