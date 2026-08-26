@@ -55,6 +55,9 @@ export async function updateEmployee(
     if (err instanceof BackendError && err.status === 400) {
       return { error: `Could not save employee: ${err.message || "please check the details and try again."}` };
     }
+    if (err instanceof BackendError && err.status === 404) {
+      return { error: "That employee no longer exists." };
+    }
     throw err;
   }
 

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
 import type { EmployeeResponse, ShiftResponse } from "@/lib/types";
@@ -20,7 +21,7 @@ export default async function EmployeesPage({
   return (
     <div className="p-6 space-y-6">
       <h1 className="font-display text-2xl text-ink">Employees</h1>
-      <EmployeeForm shifts={shifts} employee={editingEmployee} />
+      <EmployeeForm key={editingEmployee?.id ?? "new"} shifts={shifts} employee={editingEmployee} />
       <div className="hidden md:block overflow-x-auto bg-surface border border-border rounded-lg">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -39,9 +40,9 @@ export default async function EmployeesPage({
                 <td className="py-3 px-4">{shifts.find((s) => s.id === employee.shiftId)?.name ?? "—"}</td>
                 <td className="py-3 px-4">
                   <div className="flex gap-3 items-center">
-                    <a href={`/employees?edit=${employee.id}`} className="text-ink hover:text-accent text-sm">
+                    <Link href={`/employees?edit=${employee.id}`} className="text-ink hover:text-accent text-sm">
                       Edit
-                    </a>
+                    </Link>
                     <DeleteEmployeeButton id={employee.id} name={employee.name} />
                   </div>
                 </td>
@@ -63,9 +64,9 @@ export default async function EmployeesPage({
               </div>
             </div>
             <div className="flex gap-3 items-center shrink-0">
-              <a href={`/employees?edit=${employee.id}`} className="text-ink hover:text-accent text-sm">
+              <Link href={`/employees?edit=${employee.id}`} className="text-ink hover:text-accent text-sm">
                 Edit
-              </a>
+              </Link>
               <DeleteEmployeeButton id={employee.id} name={employee.name} />
             </div>
           </div>

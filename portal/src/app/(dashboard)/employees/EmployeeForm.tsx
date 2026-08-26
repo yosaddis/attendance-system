@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import type { EmployeeResponse, ShiftResponse } from "@/lib/types";
 import { createEmployee, updateEmployee, type CreateEmployeeState } from "./actions";
@@ -69,12 +70,12 @@ export function EmployeeForm({ shifts, employee }: { shifts: ShiftResponse[]; em
           {employee ? "Save changes" : "Add employee"}
         </button>
         {employee && (
-          <a
+          <Link
             href="/employees"
             className="border border-border rounded-md px-4 py-2 text-ink hover:border-accent flex items-center"
           >
             Cancel
-          </a>
+          </Link>
         )}
       </div>
     </form>
