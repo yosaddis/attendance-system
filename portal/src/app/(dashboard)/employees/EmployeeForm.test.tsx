@@ -48,7 +48,7 @@ describe("EmployeeForm", () => {
             allowedBreakMinutes: null,
           },
         ]}
-        employee={{ id: "e1", employeeCode: "E001", name: "Jane Doe", shiftId: "s1" }}
+        employee={{ id: "e1", employeeCode: "E001", name: "Jane Doe", shiftId: "s1", hasFingerprint: false }}
       />,
     );
 

@@ -92,5 +92,18 @@ describe("EmployeesPage", () => {
 
     expect(within(table).getAllByText(/not enrolled/i)).toHaveLength(1);
     expect(within(cards).getAllByText(/not enrolled/i)).toHaveLength(1);
+
+    // Pin the polarity, not just the count: the badge must appear on John
+    // Smith's row/card (hasFingerprint: false) and not on Jane Doe's
+    // (hasFingerprint: true).
+    const enrolledRow = within(table).getByRole("row", { name: /Jane Doe/i });
+    const unenrolledRow = within(table).getByRole("row", { name: /John Smith/i });
+    expect(within(enrolledRow).queryByText(/not enrolled/i)).not.toBeInTheDocument();
+    expect(within(unenrolledRow).getByText(/not enrolled/i)).toBeInTheDocument();
+
+    const enrolledCardInfo = within(cards).getByText("Jane Doe").parentElement as HTMLElement;
+    const unenrolledCardInfo = within(cards).getByText("John Smith").parentElement as HTMLElement;
+    expect(within(enrolledCardInfo).queryByText(/not enrolled/i)).not.toBeInTheDocument();
+    expect(within(unenrolledCardInfo).getByText(/not enrolled/i)).toBeInTheDocument();
   });
 });
