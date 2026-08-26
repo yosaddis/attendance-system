@@ -104,11 +104,13 @@ a person reads a shift schedule.
 
 ## Out of Scope / Known Limitations
 
-- **Overnight shifts** (end time earlier than start time, e.g. a night
-  shift 22:00–06:00) are not specially handled — the same limitation
-  already exists in `AttendanceAnalysisService`'s late-detection logic, and
-  this feature doesn't attempt to fix that gap either. A window straddling
-  midnight will not compute correctly; out of scope for this change.
+- **Overnight shifts** (end time earlier than start time, e.g. a night shift 22:00–06:00) work
+  correctly for the ±30 minute window itself — each boundary (start/end/break start/break end) is
+  checked independently using wrapped minute-of-day arithmetic, so a window straddling midnight
+  computes correctly (verified: a 22:00 start gets a correct 21:30–22:30 acceptance window; a 06:00
+  end gets a correct 05:30–06:30 window). The only residual limitation is the inherent ±12-hour
+  antipode ambiguity of a pure time-of-day comparison with no date component — not a general
+  overnight-shift failure.
 - **No admin override.** There is no UI path today for an admin to force a
   punch through outside the window from the kiosk — not being added here.
 - **Stale cache.** If a shift's times change while a station is offline,
