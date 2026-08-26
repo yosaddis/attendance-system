@@ -25,7 +25,7 @@ public class EmployeeLookupController : ControllerBase
 
         var shift = employee.ShiftId is null
             ? null
-            : await _db.Shifts.SingleOrDefaultAsync(s => s.Id == employee.ShiftId);
+            : await _db.Shifts.SingleOrDefaultAsync(s => s.Id == employee.ShiftId && s.TenantId == tenantId);
 
         return new EmployeeLookupResponse(
             employee.Id,
