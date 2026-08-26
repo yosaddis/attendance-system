@@ -1,3 +1,4 @@
+using AttendanceAgent.Api;
 using AttendanceAgent.Devices;
 
 namespace AttendanceAgent.Services;
@@ -21,11 +22,17 @@ public class PunchCaptureService : IPunchCaptureService
         _queue = queue;
     }
 
+    private const int PunchWindowMarginMinutes = 30;
+
     public async Task<PunchResult> CapturePunchAsync(string employeeCode, string punchType, IFingerprintDevice device, CancellationToken ct = default)
     {
         var employee = await _employees.ResolveAsync(employeeCode, ct);
         if (employee is null)
             return new PunchResult(false, $"Employee code '{employeeCode}' not recognized.");
+
+        var windowRejection = CheckPunchWindow(punchType, employee);
+        if (windowRejection is not null)
+            return new PunchResult(false, windowRejection);
 
         var enrolledTemplate = await _templates.GetTemplateAsync(employee.EmployeeId, ct);
         if (enrolledTemplate is null)
@@ -66,5 +73,40 @@ public class PunchCaptureService : IPunchCaptureService
 
         await _queue.EnqueueAsync(employee.EmployeeId, punchType, DateTimeOffset.UtcNow, ct);
         return new PunchResult(true, $"Punch recorded for {employee.Name}.");
+    }
+
+    // Returns a rejection message if `now` falls outside the ±30 minute window around the shift
+    // time matching this punch type, or null if the punch is allowed — including when the
+    // employee has no shift, or the shift has no configured time for this punch type (e.g. no
+    // BreakStart/BreakEnd on a 2-punch shift). Nothing to compare against means nothing to enforce.
+    private static string? CheckPunchWindow(string punchType, EmployeeLookupResult employee)
+    {
+        var (shiftTime, punchLabel) = punchType switch
+        {
+            "In" => (employee.ShiftStartTime, "In"),
+            "Out" => (employee.ShiftEndTime, "Out"),
+            "BreakOut" => (employee.ShiftBreakStart, "Break Out"),
+            "BreakIn" => (employee.ShiftBreakEnd, "Break In"),
+            _ => ((TimeOnly?)null, punchType),
+        };
+
+        if (shiftTime is null) return null;
+
+        // Signed shortest-path distance (in minutes) from the shift time to now, wrapping
+        // correctly around midnight. Raw, unwrapped time-of-day arithmetic (comparing TimeSpans
+        // directly) miscompares whenever a shift boundary sits within the margin of midnight and
+        // "now" falls on the other side of it — e.g. shift ends 23:50, now is 00:10; the naive
+        // difference looks like ~23h40m instead of the real 20 minutes.
+        var now = TimeOnly.FromDateTime(DateTime.Now);
+        var diffMinutes = (now.Hour * 60 + now.Minute) - (shiftTime.Value.Hour * 60 + shiftTime.Value.Minute);
+        if (diffMinutes > 720) diffMinutes -= 1440;
+        if (diffMinutes <= -720) diffMinutes += 1440;
+
+        if (Math.Abs(diffMinutes) <= PunchWindowMarginMinutes) return null;
+
+        var tooEarly = diffMinutes < 0;
+        var windowStart = shiftTime.Value.AddMinutes(-PunchWindowMarginMinutes).ToString("h:mm tt");
+        var windowEnd = shiftTime.Value.AddMinutes(PunchWindowMarginMinutes).ToString("h:mm tt");
+        return $"Too {(tooEarly ? "early" : "late")} to punch {punchLabel} — accepted from {windowStart} to {windowEnd}.";
     }
 }
