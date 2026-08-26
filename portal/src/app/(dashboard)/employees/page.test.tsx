@@ -22,8 +22,8 @@ const shifts = [
 ];
 
 const employees = [
-  { id: "e1", employeeCode: "E001", name: "Jane Doe", shiftId: "s1" },
-  { id: "e2", employeeCode: "E002", name: "John Smith", shiftId: null },
+  { id: "e1", employeeCode: "E001", name: "Jane Doe", shiftId: "s1", hasFingerprint: true },
+  { id: "e2", employeeCode: "E002", name: "John Smith", shiftId: null, hasFingerprint: false },
 ];
 
 describe("EmployeesPage", () => {
@@ -82,5 +82,15 @@ describe("EmployeesPage", () => {
 
     expect(within(table).getAllByRole("button", { name: /delete/i })).toHaveLength(2);
     expect(within(cards).getAllByRole("button", { name: /delete/i })).toHaveLength(2);
+  });
+
+  it("shows a Not Enrolled badge only for employees without a fingerprint template", async () => {
+    render(await EmployeesPage({ searchParams: Promise.resolve({}) }));
+
+    const table = screen.getByRole("table");
+    const cards = screen.getByTestId("mobile-cards");
+
+    expect(within(table).getAllByText(/not enrolled/i)).toHaveLength(1);
+    expect(within(cards).getAllByText(/not enrolled/i)).toHaveLength(1);
   });
 });

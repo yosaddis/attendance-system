@@ -2,6 +2,7 @@ import Link from "next/link";
 import { backendFetch } from "@/lib/backendFetch";
 import { getToken } from "@/lib/session";
 import type { EmployeeResponse, ShiftResponse } from "@/lib/types";
+import { Badge } from "../Badge";
 import { EmployeeForm } from "./EmployeeForm";
 import { DeleteEmployeeButton } from "./DeleteEmployeeButton";
 
@@ -29,6 +30,7 @@ export default async function EmployeesPage({
               <th className="py-3 px-4 font-medium">Code</th>
               <th className="py-3 px-4 font-medium">Name</th>
               <th className="py-3 px-4 font-medium">Shift</th>
+              <th className="py-3 px-4 font-medium">Fingerprint</th>
               <th className="py-3 px-4"></th>
             </tr>
           </thead>
@@ -38,6 +40,7 @@ export default async function EmployeesPage({
                 <td className="py-3 px-4">{employee.employeeCode}</td>
                 <td className="py-3 px-4">{employee.name}</td>
                 <td className="py-3 px-4">{shifts.find((s) => s.id === employee.shiftId)?.name ?? "—"}</td>
+                <td className="py-3 px-4">{!employee.hasFingerprint && <Badge>Not Enrolled</Badge>}</td>
                 <td className="py-3 px-4">
                   <div className="flex gap-3 items-center">
                     <Link href={`/employees?edit=${employee.id}`} className="text-ink hover:text-accent text-sm">
@@ -59,8 +62,11 @@ export default async function EmployeesPage({
           <div key={employee.id} className="p-4 flex items-center justify-between gap-3">
             <div>
               <div className="font-medium text-ink">{employee.name}</div>
-              <div className="text-xs text-ink-soft mt-1">
-                {employee.employeeCode} · {shifts.find((s) => s.id === employee.shiftId)?.name ?? "—"}
+              <div className="text-xs text-ink-soft mt-1 flex items-center gap-1 flex-wrap">
+                <span>
+                  {employee.employeeCode} · {shifts.find((s) => s.id === employee.shiftId)?.name ?? "—"}
+                </span>
+                {!employee.hasFingerprint && <Badge>Not Enrolled</Badge>}
               </div>
             </div>
             <div className="flex gap-3 items-center shrink-0">

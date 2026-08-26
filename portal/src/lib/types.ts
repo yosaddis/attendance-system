@@ -3,6 +3,7 @@ export type EmployeeResponse = {
   employeeCode: string;
   name: string;
   shiftId: string | null;
+  hasFingerprint: boolean;
 };
 
 export type ShiftResponse = {
