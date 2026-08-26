@@ -68,6 +68,49 @@ public class EmployeesControllerTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task CreateEmployee_ReturnsHasFingerprintFalse()
+    {
+        var tenantId = CreateTenant();
+        var client = await TenantAdminClientAsync(tenantId);
+
+        var created = await client.PostAsJsonAsync("/api/employees", new CreateEmployeeRequest("E001", "Jane Doe", null));
+        var employee = await created.Content.ReadFromJsonAsync<EmployeeResponse>();
+
+        Assert.False(employee!.HasFingerprint);
+    }
+
+    [Fact]
+    public async Task ListEmployees_ReflectsFingerprintEnrollmentStatus()
+    {
+        var tenantId = CreateTenant();
+        var client = await TenantAdminClientAsync(tenantId);
+
+        var enrolledCreated = await client.PostAsJsonAsync("/api/employees", new CreateEmployeeRequest("E001", "Jane Doe", null));
+        var enrolled = await enrolledCreated.Content.ReadFromJsonAsync<EmployeeResponse>();
+        var unenrolledCreated = await client.PostAsJsonAsync("/api/employees", new CreateEmployeeRequest("E002", "John Smith", null));
+        var unenrolled = await unenrolledCreated.Content.ReadFromJsonAsync<EmployeeResponse>();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var cipher = scope.ServiceProvider.GetRequiredService<ITemplateCipher>();
+            db.FingerprintTemplates.Add(new FingerprintTemplate
+            {
+                EmployeeId = enrolled!.Id,
+                Vendor = DeviceVendor.Zk4500,
+                TemplateDataEncrypted = cipher.Encrypt(new byte[] { 1, 2, 3 }),
+            });
+            db.SaveChanges();
+        }
+
+        var listResponse = await client.GetAsync("/api/employees");
+        var list = await listResponse.Content.ReadFromJsonAsync<List<EmployeeResponse>>();
+
+        Assert.True(list!.Single(e => e.Id == enrolled.Id).HasFingerprint);
+        Assert.False(list.Single(e => e.Id == unenrolled!.Id).HasFingerprint);
+    }
+
+    [Fact]
     public async Task Employee_FromOtherTenant_IsNotVisibleOrEditable()
     {
         var tenantId = CreateTenant();
