@@ -111,7 +111,7 @@ public partial class MainViewModel : ObservableObject
     // itself, so a punch that starts DURING an already-in-progress login's two awaits (LoginAsync,
     // GetStationTenantIdAsync) can still land its own IsDeviceBusy=true/false around the login's
     // unconditional panel flip below — momentarily unlocking the Enroll panel with every one of
-    // its buttons disabled (StartEnrollmentCommand/ExitAdminModeCommand both gate on CanUseDevice
+    // its buttons disabled (StartEnrollmentCommand/SelectPunchTabCommand both gate on CanUseDevice
     // too) until the punch finishes. That residual ordering is benign and self-healing (the
     // operator sees a station that looks unlocked but does nothing, for the punch's duration only)
     // — this gate exists to prevent the more common case, not to guarantee every ordering.
@@ -158,9 +158,10 @@ public partial class MainViewModel : ObservableObject
     // the command's IsRunning state) — exactly the semantics a Cancel button needs, and strictly
     // better than the old hand-written CancelEnrollmentCommand, which could be invoked at any
     // time and never actually stopped the running enrollment (no CancellationToken was wired to
-    // it at all). The panel reset below runs once EnrollAsync itself returns — whether it
-    // completed, failed, or was cancelled — never eagerly on the button click, so the UI can't
-    // flip back to the punch panel while the enrollment still owns the device.
+    // it at all). Enrollment completion of any kind — success, failure, or cancellation — never
+    // itself changes which tab is active; only SelectPunchTab re-locks the Admin tab. This
+    // method's finally block only clears transient enrollment state (EnrollProgressMessage
+    // always, EnrollEmployeeCode only on success) and releases the device lock.
     [RelayCommand(CanExecute = nameof(CanUseDevice), IncludeCancelCommand = true)]
     private async Task StartEnrollmentAsync(CancellationToken ct)
     {
