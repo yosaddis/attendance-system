@@ -1966,11 +1966,619 @@ git commit -m "chore: register background sync, add first-run setup, and documen
 
 ---
 
+### Task 10: Real SecuGen hardware integration
+
+**Added after Task 9**: vendor SDK resources became available (SecuGen's
+SecuBSP SDK Pro — the "SecuGen Hamster Plus"-class device family named in
+the spec, distributed as `SecuBSPMx.NET.dll`, a mixed-mode/IJW managed
+wrapper around the native `SecuBSPMx.dll` + `sgfpamx.dll`). This task
+replaces the fake device/verifier with real implementations for Release
+builds, closing the gap `StartupGuards.AssertNoFakeHardwareInRelease`
+(Task 9) was written to detect — today a genuine Release build has
+nothing else to register and would always fail that guard.
+
+**What can and cannot be automated here:** the class structure, DI wiring,
+and build correctness can be verified without hardware. The actual
+capture/match *behavior* against a physical scanner cannot — no device is
+attached to the development machine. Treat this the same way Task 9
+treats hardware bring-up: implement and test everything that doesn't
+require a scanner, and leave a manual verification checklist for the rest.
+
+**Files:**
+- Create: `agent/src/AttendanceAgent/Vendor/SecuGen/x64/SecuBSPMx.dll` (binary, already copied)
+- Create: `agent/src/AttendanceAgent/Vendor/SecuGen/x64/SecuBSPMx.NET.dll` (binary, already copied)
+- Create: `agent/src/AttendanceAgent/Vendor/SecuGen/x64/sgfpamx.dll` (binary, already copied)
+- Modify: `agent/src/AttendanceAgent/AttendanceAgent.csproj`
+- Create: `agent/src/AttendanceAgent/Devices/SecuGen/SecuGenFingerprintDevice.cs`
+- Create: `agent/src/AttendanceAgent/Devices/SecuGen/SecuGenFingerprintVerifier.cs`
+- Modify: `agent/src/AttendanceAgent/HostComposition.cs` (or wherever `IFingerprintDevice`/`IFingerprintVerifier` are registered — check current file)
+- Modify: `agent/README.md`
+- Test: `agent/tests/AttendanceAgent.Tests/SecuGenFingerprintDeviceRegistrationTests.cs` (or similar name — verifies wiring, not hardware behavior)
+
+**Interfaces:**
+- Consumes: `IFingerprintDevice`, `IFingerprintVerifier` (Task 2) — the new classes implement these EXACTLY, no interface changes.
+- Produces: `SecuGenFingerprintDevice : IFingerprintDevice`, `SecuGenFingerprintVerifier : IFingerprintVerifier`, registered as the real implementations under `#else` (Release) in the existing `#if DEBUG` guard that currently registers the fakes unconditionally.
+
+- [ ] **Step 1: Add the vendor reference and platform target**
+
+The vendor DLLs are already copied into
+`agent/src/AttendanceAgent/Vendor/SecuGen/x64/`. `SecuBSPMx.NET.dll` is a
+C++/CLI mixed-mode (IJW) assembly — it requires an EXACT platform match
+(not AnyCPU) and the `Microsoft.DotNet.IjwHost` shim to load under modern
+.NET. Update `AttendanceAgent.csproj`:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.30" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+    <PackageReference Include="Microsoft.DotNet.IjwHost" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="SecuBSPMx.NET">
+      <HintPath>Vendor\SecuGen\x64\SecuBSPMx.NET.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Vendor\SecuGen\x64\SecuBSPMx.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Vendor\SecuGen\x64\sgfpamx.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
+```
+
+Check whether `Microsoft.DotNet.IjwHost` version `8.0.0` actually exists
+on nuget.org — if not, use whatever the latest 8.x release is (the
+package versions independently of the SDK; any 8.x release is fine for
+net8.0-windows). If the package doesn't resolve at all, fall back to
+copying `Ijwhost.dll` directly next to the vendor DLLs the same way
+`SecuBSPMx.dll`/`sgfpamx.dll` are copied (a copy exists alongside the
+vendor sample binaries at `C:\Users\Traveler\Documents\Work\ZAK\FP
+Resources\samples\Net5.0\ReDist-Samples\bin\x64\Ijwhost.dll` if needed)
+— but prefer the NuGet package since it won't go stale.
+
+**Do NOT change `agent/tests/AttendanceAgent.Tests/AttendanceAgent.Tests.csproj`'s
+platform** unless the build actually requires it — the test project only
+references Fakes and should have no vendor dependency at all; keep the
+hardware-dependent code isolated to the main project.
+
+- [ ] **Step 2: Run the full test suite to confirm the platform-target change didn't break anything**
+
+Run: `dotnet build agent/AttendanceAgent.sln` and `dotnet test agent/tests/AttendanceAgent.Tests`
+Expected: build succeeds (0 warnings), all existing tests still pass unchanged (the platform target change affects the main project's output architecture, not test behavior).
+
+- [ ] **Step 3: Implement `SecuGenFingerprintDevice`**
+
+```csharp
+// agent/src/AttendanceAgent/Devices/SecuGen/SecuGenFingerprintDevice.cs
+using SecuGen.SecuBSPPro.Windows;
+
+namespace AttendanceAgent.Devices.SecuGen;
+
+public class SecuGenFingerprintDevice : IFingerprintDevice
+{
+    private readonly SecuBSPMx _secuBsp = new();
+
+    public void Acquire()
+    {
+        var enumErr = _secuBsp.EnumerateDevice();
+        if (enumErr != BSPError.ERROR_NONE || _secuBsp.DeviceNum == 0)
+            throw new InvalidOperationException($"No SecuGen device found (EnumerateDevice: {enumErr}).");
+
+        _secuBsp.DeviceID = _secuBsp.GetDeviceID(0);
+
+        var openErr = _secuBsp.OpenDevice();
+        if (openErr != BSPError.ERROR_NONE)
+            throw new InvalidOperationException($"Failed to open SecuGen device (OpenDevice: {openErr}).");
+    }
+
+    public byte[] Capture()
+    {
+        // Kiosk mode: no popup window, no on-screen fingerprint preview —
+        // this station has no operator watching a capture dialog.
+        _secuBsp.CaptureWindowOption.WindowStyle = (int)WindowStyle.INVISIBLE;
+        _secuBsp.CaptureWindowOption.ShowFPImage = false;
+        _secuBsp.CaptureWindowOption.FingerWindow = IntPtr.Zero;
+
+        var err = _secuBsp.Capture(FIRPurpose.VERIFY);
+        if (err != BSPError.ERROR_NONE)
+            throw new InvalidOperationException($"Fingerprint capture failed (Capture: {err}).");
+
+        // ASSUMPTION, NOT YET VERIFIED AGAINST REAL HARDWARE: FIRTextData
+        // is the SDK's "text-encoded FIR" form (SecuAPI_FIR_FORM_TEXTENCODE),
+        // which for every SecuGen SDK generation observed in the vendor
+        // samples is base64. Verify this empirically during hardware
+        // bring-up (Step 6 below) — if FIRTextData turns out not to be
+        // valid base64, this line is the one to fix.
+        return Convert.FromBase64String(_secuBsp.FIRTextData);
+    }
+
+    public void Release()
+    {
+        _secuBsp.CloseDevice();
+    }
+}
+```
+
+- [ ] **Step 4: Implement `SecuGenFingerprintVerifier`**
+
+```csharp
+// agent/src/AttendanceAgent/Devices/SecuGen/SecuGenFingerprintVerifier.cs
+using SecuGen.SecuBSPPro.Windows;
+
+namespace AttendanceAgent.Devices.SecuGen;
+
+public class SecuGenFingerprintVerifier : IFingerprintVerifier
+{
+    public bool Verify(byte[] capturedTemplate, byte[] enrolledTemplate)
+    {
+        // VerifyMatch compares two already-captured FIR templates purely
+        // in software — it does not need an open device, so this creates
+        // its own short-lived SecuBSPMx instance rather than sharing one
+        // with SecuGenFingerprintDevice.
+        using var secuBsp = new SecuBSPMx();
+
+        var capturedFir = Convert.ToBase64String(capturedTemplate);
+        var enrolledFir = Convert.ToBase64String(enrolledTemplate);
+
+        var err = secuBsp.VerifyMatch(capturedFir, enrolledFir);
+        if (err != BSPError.ERROR_NONE)
+            throw new InvalidOperationException($"Fingerprint match failed (VerifyMatch: {err}).");
+
+        return secuBsp.IsMatched;
+    }
+}
+```
+
+Check whether `SecuBSPMx` implements `IDisposable` (the WinForms demo
+calls `m_SecuBSP.Dispose()` in its close handler) — if so, the `using`
+above is correct as written; if not, remove the `using` and just
+construct it normally.
+
+- [ ] **Step 5: Wire the real implementations into Release builds**
+
+Find where `IFingerprintDevice`/`IFingerprintVerifier` are currently
+registered (likely `HostComposition.cs`, alongside the existing
+`#if DEBUG` / `#else` block that also guards
+`AssertNoFakeHardwareInRelease`'s `isReleaseBuild` flag from Task 9).
+Change the registration so Debug still uses the fakes (for local dev
+without hardware) and Release uses the real SecuGen classes:
+
+```csharp
+#if DEBUG
+services.AddSingleton<IFingerprintDevice, FakeFingerprintDevice>();
+services.AddSingleton<IFingerprintVerifier, FakeFingerprintVerifier>();
+#else
+services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintDevice>();
+services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintVerifier>();
+#endif
+```
+
+Adjust to match whatever the current file's exact structure is — the
+point is Release must register the real classes, not the fakes, so
+`StartupGuards.AssertNoFakeHardwareInRelease` (Task 9) actually passes on
+a genuine Release build instead of always throwing.
+
+- [ ] **Step 6: Write a registration test proving the DI wiring (not hardware behavior)**
+
+```csharp
+// agent/tests/AttendanceAgent.Tests/SecuGenFingerprintDeviceRegistrationTests.cs
+using AttendanceAgent.Devices.SecuGen;
+using Xunit;
+
+namespace AttendanceAgent.Tests;
+
+public class SecuGenFingerprintDeviceRegistrationTests
+{
+    [Fact]
+    public void SecuGenFingerprintDevice_ImplementsIFingerprintDevice()
+    {
+        Assert.IsAssignableFrom<AttendanceAgent.Devices.IFingerprintDevice>(
+            (object)Activator.CreateInstance(typeof(SecuGenFingerprintDevice))!);
+    }
+
+    [Fact]
+    public void SecuGenFingerprintVerifier_ImplementsIFingerprintVerifier()
+    {
+        Assert.IsAssignableFrom<AttendanceAgent.Devices.IFingerprintVerifier>(
+            (object)Activator.CreateInstance(typeof(SecuGenFingerprintVerifier))!);
+    }
+}
+```
+
+This only proves the classes exist and satisfy the interface contract —
+it does NOT touch a real device (constructing `SecuBSPMx` doesn't require
+one; only `OpenDevice()`/`Capture()` do). If constructing either class
+throws in this test environment (e.g. a missing native DLL at test
+runtime), that's real signal — investigate rather than deleting the test.
+
+- [ ] **Step 7: Run the full suite one more time and update the README's hardware bring-up section**
+
+Run: `dotnet test agent/tests/AttendanceAgent.Tests` and `dotnet build agent/AttendanceAgent.sln -c Release`
+Expected: tests pass; Release build succeeds and does NOT throw
+`StartupGuards`'s fake-hardware exception at the code level (the guard
+itself only runs at app startup, not build time — but confirm by reading
+the registration code that Release now points at the real classes).
+
+Update `agent/README.md`'s "Real hardware bring-up" section: mark the SDK
+integration itself as done, and narrow the remaining manual checklist to
+what genuinely still needs a physical device:
+
+```markdown
+## Real hardware bring-up (manual, not automated)
+
+SecuGen SDK integration is wired in (`SecuGenFingerprintDevice`,
+`SecuGenFingerprintVerifier`, Release builds only — Debug still uses the
+fakes for hardware-free local development). The following still requires
+a physical SecuGen device (Hamster Plus or compatible FDx-family reader)
+and cannot be automated:
+
+1. Confirm `FIRTextData` is genuinely base64 (see the comment in
+   `SecuGenFingerprintDevice.Capture()`) — capture a real fingerprint and
+   verify `Convert.FromBase64String` doesn't throw. If it does, this is
+   the SDK detail to fix first.
+2. Enroll a fingerprint for a test employee via the enrollment flow.
+3. Punch in with the correct finger — verify success and that the device
+   is released immediately after each capture (no exclusive lock held
+   between punches — confirm by running SecuGen's own diagnostic tool
+   concurrently and seeing it can still see the device).
+4. Punch in with a different finger — verify rejection.
+5. Disconnect the network, punch in/out several times, reconnect — verify
+   the queued punches sync within 30 seconds and appear in the backend's
+   daily attendance view exactly once each (no duplicates).
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add agent
+git commit -m "feat: integrate real SecuGen fingerprint SDK for Release builds"
+```
+
+---
+
+### Task 11: Real ZKFinger (ZK4500-class) hardware integration
+
+**Added after Task 10**: ZKFinger Standard SDK 5.3.0.33 resources became
+available (`libzkfpcsharp.dll`, a plain managed .NET Framework 2.0
+P/Invoke wrapper — confirmed IL-only via `Module.GetPEKind`, not a
+mixed-mode/IJW assembly like SecuGen's `SecuBSPMx.NET.dll`, so this does
+NOT need the `Ijwhost.dll` shim Task 10 needed). This gives the desktop
+agent a second real vendor implementation alongside SecuGen (Task 10), so
+a station configured for the spec's `Zk4500` device vendor can run
+without the fake device.
+
+**Vendor selection is a build-time choice, not runtime.** Per the spec,
+each station has exactly one device vendor. Task 10 wired `SecuGen`
+unconditionally into every Release build. This task keeps that default
+(so existing builds/tests are unaffected) and adds a new `DeviceVendor`
+MSBuild property (`SecuGen` | `Zk4500`, default `SecuGen`) that picks
+which real classes get registered in Release via a nested `#if`. Debug
+always uses the fakes regardless of `DeviceVendor` — unchanged from
+Task 10.
+
+**Key vendor API differences from SecuGen (verify these against real
+hardware — do not assume):**
+
+1. **Templates are already raw bytes.** `AcquireFingerprint` fills a
+   `byte[]` template buffer directly — there is no text-encoded form like
+   SecuGen's `FIRTextData`, so there should be no equivalent of the
+   base64-vs-UTF8 surprise Task 10 hit. Still confirm with a real capture
+   that the returned bytes round-trip through storage and match
+   correctly — don't assume this is automatically safe just because it's
+   binary.
+2. **Capture is poll-based, not blocking.** `AcquireFingerprint` returns
+   immediately with `ZKFP_ERR_CAPTURE` (-8) if no finger is currently on
+   the sensor — it does not block waiting for one like SecuGen's
+   `Capture()`. `ZkFingerprintDevice.Capture()` below polls every 200ms
+   (matching the vendor demo's own capture-thread interval) against a 15s
+   deadline (matching the tuned timeout Task 10 found necessary for
+   SecuGen — unconfirmed whether ZK needs the same, adjust if hardware
+   bring-up shows otherwise).
+3. **Matching needs its own algorithm handle.** Unlike SecuGen's
+   `VerifyMatch` (pure software, no init needed), ZK's `DBMatch` requires
+   `zkfp2.Init()` to have run and a `DBInit()` handle. Since the verifier
+   runs after the device has already been released
+   (`PunchCaptureService` calls `DeviceCapture.CaptureOnce` — which
+   releases the device in its `finally` — before calling
+   `IFingerprintVerifier.Verify`), `ZkFingerprintVerifier.Verify` does its
+   own `Init()`/`DBInit()`/`DBFree()`/`Terminate()` around each call. This
+   means a single punch attempt calls `zkfp2.Init()`/`Terminate()` twice
+   in quick succession (once for capture, once for verify) — **hardware
+   bring-up must confirm the native library tolerates rapid
+   re-init/terminate cycling**; if it doesn't, the fix is a
+   longer-lived shared handle instead of a short-lived one, but don't
+   build that speculatively until hardware proves it's needed.
+4. **No native runtime DLL ships in this SDK's `C#/lib/` folders** — only
+   `libzkfpcsharp.dll` (the managed wrapper) and, elsewhere in the SDK,
+   `.lib` import stubs for native C/C++ builds. The SDK root has a
+   `setup.exe`. This strongly suggests ZKTeco expects the native
+   driver/runtime to be installed system-wide via that installer on each
+   station machine, unlike SecuGen's loose-DLL redistributable approach.
+   **This is an assumption, not a confirmed fact** — hardware bring-up
+   must check whether `zkfp2.Init()` throws `DllNotFoundException`
+   without the driver installed, and if so, document running `setup.exe`
+   as a required station provisioning step.
+
+**Files:**
+- Create: `agent/src/AttendanceAgent/Vendor/Zk/x64/libzkfpcsharp.dll` (binary, already copied)
+- Modify: `agent/src/AttendanceAgent/AttendanceAgent.csproj`
+- Create: `agent/src/AttendanceAgent/Devices/Zk/ZkFingerprintDevice.cs`
+- Create: `agent/src/AttendanceAgent/Devices/Zk/ZkFingerprintVerifier.cs`
+- Modify: `agent/src/AttendanceAgent/HostComposition.cs`
+- Modify: `agent/README.md`
+- Test: `agent/tests/AttendanceAgent.Tests/ZkFingerprintDeviceRegistrationTests.cs`
+
+**Interfaces:**
+- Consumes: `IFingerprintDevice`, `IFingerprintVerifier` (Task 2) — no interface changes.
+- Produces: `ZkFingerprintDevice : IFingerprintDevice`, `ZkFingerprintVerifier : IFingerprintVerifier`, registered under a new `DEVICE_VENDOR_ZK4500` compile constant inside the existing Release (`#else` of `#if DEBUG`) branch.
+
+- [ ] **Step 1: Add the `DeviceVendor` MSBuild property and the vendor reference**
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <DeviceVendor Condition="'$(DeviceVendor)'==''">SecuGen</DeviceVendor>
+    <DefineConstants>$(DefineConstants);DEVICE_VENDOR_$(DeviceVendor.ToUpperInvariant())</DefineConstants>
+  </PropertyGroup>
+
+  <!-- ... existing PackageReference / SecuGen ItemGroups unchanged ... -->
+
+  <ItemGroup>
+    <Reference Include="libzkfpcsharp">
+      <HintPath>Vendor\Zk\x64\libzkfpcsharp.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
+```
+
+`libzkfpcsharp.dll` is a plain IL-only managed reference — normal
+reference copy-local behavior puts it in the output directory already,
+so (unlike SecuGen's native companions) it does NOT need an explicit
+`<None Include=... CopyToOutputDirectory>` entry. Default `DeviceVendor`
+to `SecuGen` so every existing build command, and all of Task 10's tests,
+keep working unchanged. Building for a ZK4500 station is
+`dotnet build agent/AttendanceAgent.sln -p:DeviceVendor=Zk4500` (or the
+equivalent `dotnet publish ... -c Release -p:DeviceVendor=Zk4500`).
+
+- [ ] **Step 2: Run the full test suite to confirm nothing broke**
+
+Run: `dotnet build agent/AttendanceAgent.sln` and `dotnet test agent/tests/AttendanceAgent.Tests`
+Expected: build succeeds, all 52 existing tests still pass unchanged (no
+`DeviceVendor` was passed, so this build is identical to Task 10's
+default SecuGen configuration).
+
+- [ ] **Step 3: Implement `ZkFingerprintDevice`**
+
+```csharp
+// agent/src/AttendanceAgent/Devices/Zk/ZkFingerprintDevice.cs
+using libzkfpcsharp;
+
+namespace AttendanceAgent.Devices.Zk;
+
+public class ZkFingerprintDevice : IFingerprintDevice
+{
+    private const int ParamImageWidth = 1;
+    private const int ParamImageHeight = 2;
+    private const int TemplateBufferSize = 2048;
+    private static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
+
+    private IntPtr _devHandle = IntPtr.Zero;
+    private byte[] _imageBuffer = Array.Empty<byte>();
+
+    public void Acquire()
+    {
+        var initErr = zkfp2.Init();
+        if (initErr != zkfperrdef.ZKFP_ERR_OK && initErr != zkfperrdef.ZKFP_ERR_ALREADY_INIT)
+            throw new InvalidOperationException($"ZKFinger algorithm init failed (Init: {initErr}).");
+
+        if (zkfp2.GetDeviceCount() == 0)
+            throw new InvalidOperationException("No ZKFinger device found.");
+
+        _devHandle = zkfp2.OpenDevice(0);
+        if (_devHandle == IntPtr.Zero)
+            throw new InvalidOperationException("Failed to open ZKFinger device (OpenDevice).");
+
+        var width = ReadIntParameter(_devHandle, ParamImageWidth);
+        var height = ReadIntParameter(_devHandle, ParamImageHeight);
+        _imageBuffer = new byte[Math.Max(1, width * height)];
+    }
+
+    public byte[] Capture()
+    {
+        var template = new byte[TemplateBufferSize];
+        var deadline = DateTime.UtcNow + CaptureTimeout;
+        int lastErr;
+        do
+        {
+            var size = TemplateBufferSize;
+            lastErr = zkfp2.AcquireFingerprint(_devHandle, _imageBuffer, template, ref size);
+            if (lastErr == zkfperrdef.ZKFP_ERR_OK)
+            {
+                var result = new byte[size];
+                Array.Copy(template, result, size);
+                return result;
+            }
+
+            Thread.Sleep(PollInterval);
+        } while (DateTime.UtcNow < deadline);
+
+        throw new InvalidOperationException($"Fingerprint capture timed out (last AcquireFingerprint result: {lastErr}).");
+    }
+
+    public void Release()
+    {
+        if (_devHandle != IntPtr.Zero)
+        {
+            zkfp2.CloseDevice(_devHandle);
+            _devHandle = IntPtr.Zero;
+        }
+        zkfp2.Terminate();
+    }
+
+    private static int ReadIntParameter(IntPtr devHandle, int code)
+    {
+        var buffer = new byte[4];
+        var size = buffer.Length;
+        zkfp2.GetParameters(devHandle, code, buffer, ref size);
+        var value = 0;
+        zkfp2.ByteArray2Int(buffer, ref value);
+        return value;
+    }
+}
+```
+
+- [ ] **Step 4: Implement `ZkFingerprintVerifier`**
+
+```csharp
+// agent/src/AttendanceAgent/Devices/Zk/ZkFingerprintVerifier.cs
+using libzkfpcsharp;
+
+namespace AttendanceAgent.Devices.Zk;
+
+public class ZkFingerprintVerifier : IFingerprintVerifier
+{
+    public bool Verify(byte[] capturedTemplate, byte[] enrolledTemplate)
+    {
+        // DBMatch is pure software but, unlike SecuGen's VerifyMatch, still
+        // needs the algorithm library initialized and a DB handle — it does
+        // NOT need an open device. This runs independently of
+        // ZkFingerprintDevice, which has already been released by the time
+        // this is called (see DeviceCapture.CaptureOnce).
+        var initErr = zkfp2.Init();
+        if (initErr != zkfperrdef.ZKFP_ERR_OK && initErr != zkfperrdef.ZKFP_ERR_ALREADY_INIT)
+            throw new InvalidOperationException($"ZKFinger algorithm init failed (Init: {initErr}).");
+
+        var dbHandle = zkfp2.DBInit();
+        if (dbHandle == IntPtr.Zero)
+        {
+            zkfp2.Terminate();
+            throw new InvalidOperationException("ZKFinger DBInit failed.");
+        }
+
+        try
+        {
+            var score = zkfp2.DBMatch(dbHandle, capturedTemplate, enrolledTemplate);
+            return score > 0;
+        }
+        finally
+        {
+            zkfp2.DBFree(dbHandle);
+            zkfp2.Terminate();
+        }
+    }
+}
+```
+
+- [ ] **Step 5: Wire the real implementations into Release builds under the new compile constant**
+
+```csharp
+#if DEBUG
+services.AddSingleton<IFingerprintDevice, FakeFingerprintDevice>();
+services.AddSingleton<IFingerprintVerifier, FakeFingerprintVerifier>();
+#elif DEVICE_VENDOR_ZK4500
+services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.Zk.ZkFingerprintDevice>();
+services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.Zk.ZkFingerprintVerifier>();
+#else
+services.AddSingleton<IFingerprintDevice, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintDevice>();
+services.AddSingleton<IFingerprintVerifier, AttendanceAgent.Devices.SecuGen.SecuGenFingerprintVerifier>();
+#endif
+```
+
+Adjust to match the current file's exact structure. Confirm the default
+(no `DeviceVendor` passed) still resolves to the `#else` SecuGen branch.
+
+- [ ] **Step 6: Write a registration test proving the DI wiring (not hardware behavior)**
+
+```csharp
+// agent/tests/AttendanceAgent.Tests/ZkFingerprintDeviceRegistrationTests.cs
+using AttendanceAgent.Devices.Zk;
+using Xunit;
+
+namespace AttendanceAgent.Tests;
+
+public class ZkFingerprintDeviceRegistrationTests
+{
+    [Fact]
+    public void ZkFingerprintDevice_ImplementsIFingerprintDevice()
+    {
+        Assert.IsAssignableFrom<AttendanceAgent.Devices.IFingerprintDevice>(
+            (object)Activator.CreateInstance(typeof(ZkFingerprintDevice))!);
+    }
+
+    [Fact]
+    public void ZkFingerprintVerifier_ImplementsIFingerprintVerifier()
+    {
+        Assert.IsAssignableFrom<AttendanceAgent.Devices.IFingerprintVerifier>(
+            (object)Activator.CreateInstance(typeof(ZkFingerprintVerifier))!);
+    }
+}
+```
+
+Constructing either class must not touch the device (no side effects
+outside `Acquire()`) — same principle as Task 10's SecuGen registration
+test. This project does not build with `DEVICE_VENDOR_ZK4500` defined,
+so these tests only prove the classes compile and satisfy the interface
+contract, same limitation as Task 10.
+
+- [ ] **Step 7: Run the full suite in both configurations and update the README**
+
+Run: `dotnet test agent/tests/AttendanceAgent.Tests` (default, SecuGen),
+then `dotnet build agent/AttendanceAgent.sln -c Release -p:DeviceVendor=Zk4500`
+to confirm the ZK4500 configuration actually compiles (it won't be
+exercised by the default test run).
+Expected: default tests pass unchanged; the `Zk4500` Release build
+succeeds.
+
+Update `agent/README.md`'s "Real hardware bring-up" section with a new
+ZK4500 subsection listing what a physical device must confirm: the raw
+byte-array-templates assumption, the AcquireFingerprint polling
+timeout, the double Init/Terminate cycle per punch, and whether
+`setup.exe`'s driver install is a prerequisite (see the four numbered
+points above). Do not mark any of them "verified" until they're actually
+checked against real hardware.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add agent
+git commit -m "feat: integrate real ZKFinger fingerprint SDK for ZK4500-configured stations"
+```
+
+---
+
 ## What Phase 2+ picks up from here
 
-- Real ZK4500/SecuGen SDK device implementations (manual bring-up
-  documented above becomes an actual implementation task once hardware
-  and SDK licenses are available).
 - Multi-station template pre-sync (today each station fetches on demand;
   Phase 2 pushes templates to every station at a site proactively).
 - Agent auto-update mechanism (Phase 4 per the spec).
+- Per-station `DeviceVendor` selection is a build-time MSBuild property
+  today (Task 10 + Task 11) — if a fleet ever needs to mix vendors from a
+  single distributed binary rather than a per-station build, that would
+  need to become a runtime choice driven by the station's backend
+  config instead.

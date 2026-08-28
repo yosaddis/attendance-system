@@ -1,0 +1,192 @@
+using AttendanceAgent.Api;
+using AttendanceAgent.Data;
+using AttendanceAgent.Services;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace AttendanceAgent.Tests;
+
+public class EmployeeDirectoryServiceTests
+{
+    private static readonly Guid EmployeeId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    [Fact]
+    public async Task ResolveAsync_Online_CachesResultLocally()
+    {
+        using var db = TestDb.CreateInMemory();
+        var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(EmployeeId, "E001", "Jane Doe") };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Equal("Jane Doe", result!.Name);
+        Assert.NotNull(await db.CachedEmployees.FindAsync(EmployeeId));
+    }
+
+    [Fact]
+    public async Task ResolveAsync_Online_CachesShiftTimesLocally()
+    {
+        using var db = TestDb.CreateInMemory();
+        var api = new FakeBackendApiClient
+        {
+            LookupResult = new EmployeeLookupResult(
+                EmployeeId, "E001", "Jane Doe",
+                new TimeOnly(9, 0), new TimeOnly(17, 0), new TimeOnly(12, 0), new TimeOnly(13, 0)),
+        };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        await service.ResolveAsync("E001");
+
+        var cached = await db.CachedEmployees.FindAsync(EmployeeId);
+        Assert.Equal(new TimeOnly(9, 0), cached!.ShiftStartTime);
+        Assert.Equal(new TimeOnly(17, 0), cached.ShiftEndTime);
+        Assert.Equal(new TimeOnly(12, 0), cached.ShiftBreakStart);
+        Assert.Equal(new TimeOnly(13, 0), cached.ShiftBreakEnd);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_Offline_FallsBackToCachedShiftTimes()
+    {
+        using var db = TestDb.CreateInMemory();
+        db.CachedEmployees.Add(new CachedEmployee
+        {
+            EmployeeId = EmployeeId,
+            EmployeeCode = "E001",
+            Name = "Jane Doe",
+            ShiftStartTime = new TimeOnly(9, 0),
+            ShiftEndTime = new TimeOnly(17, 0),
+            CachedAt = DateTimeOffset.UtcNow,
+        });
+        db.SaveChanges();
+        var api = new FakeBackendApiClient { ThrowOnLookup = true };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Equal(new TimeOnly(9, 0), result!.ShiftStartTime);
+        Assert.Equal(new TimeOnly(17, 0), result.ShiftEndTime);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_Offline_FallsBackToLocalCache()
+    {
+        using var db = TestDb.CreateInMemory();
+        db.CachedEmployees.Add(new CachedEmployee { EmployeeId = EmployeeId, EmployeeCode = "E001", Name = "Jane Doe", CachedAt = DateTimeOffset.UtcNow });
+        db.SaveChanges();
+        var api = new FakeBackendApiClient { ThrowOnLookup = true };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Equal("Jane Doe", result!.Name);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_OfflineAndUncached_ReturnsNull()
+    {
+        using var db = TestDb.CreateInMemory();
+        var api = new FakeBackendApiClient { ThrowOnLookup = true };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_HttpTimeout_FallsBackToLocalCache()
+    {
+        // TaskCanceledException is what a real HttpClient throws on timeout — NOT an
+        // HttpRequestException in modern .NET. This must be treated as "backend unreachable" too.
+        using var db = TestDb.CreateInMemory();
+        db.CachedEmployees.Add(new CachedEmployee { EmployeeId = EmployeeId, EmployeeCode = "E001", Name = "Jane Doe", CachedAt = DateTimeOffset.UtcNow });
+        db.SaveChanges();
+        var api = new FakeBackendApiClient { LookupExceptionToThrow = () => new TaskCanceledException("timed out") };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Equal("Jane Doe", result!.Name);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_DefinitiveNotFound_PurgesStaleCacheAndReturnsNull()
+    {
+        // The backend call SUCCEEDED (no exception) and returned null — a definitive "this
+        // employee doesn't exist anymore" signal, e.g. terminated/deleted server-side. This must
+        // NOT fall through to the stale cache (that would let a deleted employee keep punching
+        // indefinitely from any station that once cached them) — it must purge the cache entry too.
+        using var db = TestDb.CreateInMemory();
+        db.CachedEmployees.Add(new CachedEmployee { EmployeeId = EmployeeId, EmployeeCode = "E001", Name = "Jane Doe", CachedAt = DateTimeOffset.UtcNow });
+        db.SaveChanges();
+        var api = new FakeBackendApiClient { LookupResult = null };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Null(result);
+        Assert.Null(await db.CachedEmployees.FindAsync(EmployeeId));
+    }
+
+    [Fact]
+    public async Task ResolveAsync_ReassignedEmployeeCode_DoesNotCrash_AndCacheReflectsNewEmployee()
+    {
+        // CachedEmployees has a unique index on EmployeeCode. If a code is reassigned server-side
+        // (old employee deleted, new employee created with the same code), the id-keyed lookup in
+        // UpsertCacheAsync won't find the old row (different EmployeeId) and a naive Add() would
+        // collide with it on the unique index, throwing DbUpdateException uncaught.
+        using var db = TestDb.CreateInMemory();
+        var oldEmployeeId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        db.CachedEmployees.Add(new CachedEmployee { EmployeeId = oldEmployeeId, EmployeeCode = "E001", Name = "Old Employee", CachedAt = DateTimeOffset.UtcNow });
+        db.SaveChanges();
+
+        var newEmployeeId = Guid.Parse("44444444-4444-4444-4444-444444444444");
+        var api = new FakeBackendApiClient { LookupResult = new EmployeeLookupResult(newEmployeeId, "E001", "New Employee") };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        var result = await service.ResolveAsync("E001");
+
+        Assert.Equal("New Employee", result!.Name);
+        Assert.Null(await db.CachedEmployees.FindAsync(oldEmployeeId));
+        var cachedNew = await db.CachedEmployees.FindAsync(newEmployeeId);
+        Assert.NotNull(cachedNew);
+        Assert.Equal("New Employee", cachedNew!.Name);
+        Assert.Equal("E001", cachedNew.EmployeeCode);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_CallerRequestedCancellation_Propagates()
+    {
+        // A deliberate caller-requested cancellation (e.g. app shutdown) must NOT be swallowed as
+        // "offline" — it should propagate normally.
+        //
+        // The token is cancelled from *inside* the fake's throwing method — right before it throws
+        // a plain InvalidOperationException — rather than pre-cancelled before the call. This is
+        // deliberate: pre-cancelling the token and throwing an OperationCanceledException wouldn't
+        // discriminate, because the fallback cache-read below (`SingleOrDefaultAsync(..., ct)`)
+        // *also* throws OperationCanceledException once ct is cancelled, for unrelated reasons — so
+        // the test would pass identically even if the `when (!ct.IsCancellationRequested)` guard
+        // were deleted entirely (catch would just fire, log, then the fallback throws the same
+        // exception type anyway).
+        //
+        // With this shape: if the guard is intact, ct is already cancelled by the time the `when`
+        // filter runs, so it does NOT catch — the InvalidOperationException propagates immediately
+        // and the fallback code never executes. If the guard were removed (unconditional catch),
+        // the InvalidOperationException would be swallowed and the fallback would run instead,
+        // throwing OperationCanceledException — a different exception type — which fails this
+        // assertion. So this test genuinely fails if the guard regresses.
+        using var db = TestDb.CreateInMemory();
+        using var cts = new CancellationTokenSource();
+        var api = new FakeBackendApiClient
+        {
+            LookupExceptionToThrow = () =>
+            {
+                cts.Cancel();
+                return new InvalidOperationException("simulated failure");
+            },
+        };
+        var service = new EmployeeDirectoryService(api, db, NullLogger<EmployeeDirectoryService>.Instance);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ResolveAsync("E001", cts.Token));
+    }
+}
