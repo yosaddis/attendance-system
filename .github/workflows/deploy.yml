@@ -1,0 +1,110 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  backend-test:
+    name: Backend build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('backend/**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        working-directory: backend
+        run: dotnet restore
+
+      - name: Build
+        working-directory: backend
+        run: dotnet build --no-restore -c Release
+
+      - name: Test
+        working-directory: backend
+        run: dotnet test --no-build -c Release
+
+  portal-test:
+    name: Portal build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: portal/package-lock.json
+
+      - name: Install dependencies
+        working-directory: portal
+        run: npm ci
+
+      - name: Test
+        working-directory: portal
+        run: npm test
+
+      - name: Build
+        working-directory: portal
+        run: npm run build
+
+  docker-build:
+    name: Validate Docker images build
+    needs: [backend-test, portal-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # This job only proves the images build cleanly (catches a broken
+      # Dockerfile before it's ever tried on the live VPS) — it does not
+      # push anywhere. The actual deploy step rebuilds these same images
+      # directly on the VPS via `docker compose up -d --build`, which reuses
+      # that host's own persistent Docker layer cache on top of this.
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build portal image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./portal
+          push: false
+          cache-from: type=gha,scope=portal
+          cache-to: type=gha,mode=max,scope=portal
+
+  deploy:
+    name: Deploy to VPS
+    needs: [docker-build]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            # EDIT THIS to wherever you clone the repo on the VPS.
+            cd /opt/attendance-system
+            git pull origin main
+            docker compose up -d --build
+            docker image prune -f
