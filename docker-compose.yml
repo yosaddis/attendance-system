@@ -1,0 +1,101 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: attendance_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c shared_buffers=128MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=384MB
+      -c max_connections=40
+    mem_limit: 320m
+    cpus: 0.75
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: attendance_api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      # appsettings.Development.json (where these normally live) is never
+      # loaded in Production — without these three, JWT auth and template
+      # encryption throw a NullReferenceException on the first request.
+      Jwt__Key: ${JWT_KEY}
+      Jwt__Issuer: ${JWT_ISSUER}
+      Templates__EncryptionKey: ${TEMPLATE_ENCRYPTION_KEY}
+      # Bootstraps the one "Operator" account on first run (skipped if a user
+      # with this email already exists) — this is the only account that can
+      # create a Tenant, so at least one of these must be set to get started.
+      # Safe to blank out again in .env after the first successful deploy.
+      Operator__Email: ${OPERATOR_EMAIL}
+      Operator__Password: ${OPERATOR_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 300m
+    cpus: 0.75
+    networks:
+      - internal
+
+  portal:
+    build:
+      context: ./portal
+      dockerfile: Dockerfile
+    container_name: attendance_portal
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # Server-to-server call over the internal Docker network — the portal
+      # never calls the API from browser JS, so this deliberately is NOT a
+      # NEXT_PUBLIC_ variable and never goes through nginx/the public internet.
+      BACKEND_API_URL: http://api:8080
+    depends_on:
+      - api
+    mem_limit: 300m
+    cpus: 0.5
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: attendance_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - api
+      - portal
+    mem_limit: 40m
+    cpus: 0.25
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
